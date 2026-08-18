@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Tenant {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                 String                 @db.VarChar(255)
+  plan                 String                 @default("trial") @db.VarChar(20)
+  status               String                 @default("active") @db.VarChar(20)
+  trialEndsAt          DateTime?
+  cancelledAt          DateTime?
+  timezone             String                 @default("America/Sao_Paulo") @db.VarChar(50)
+  apiKeyJudit          String?                @db.Text
+  apiKeyJuditIv        String?                @db.Text
+  apiKeyEscavador      String?                @db.Text
+  apiKeyEscavadorIv    String?                @db.Text
+  createdAt            DateTime               @default(now())
+
+  users                User[]
+  clients              Client[]
+  establishments       Establishment[]
+  processes            Process[]
+  movements            Movement[]
+  processParties       ProcessParty[]
+  notifications        Notification[]
+  syncJobs             SyncJob[]
+  auditLogs            AuditLog[]
+  syncConfig           SyncConfig?
+
+  @@map("tenants")
+}
+
+model User {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String?                @db.Uuid
+  tenant               Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                 String                 @db.VarChar(255)
+  email                String                 @unique @db.VarChar(255)
+  passwordHash         String?                @db.Text
+  googleId             String?                @unique @db.VarChar(255)
+  role                 String                 @default("user") @db.VarChar(20)
+  isActive             Boolean                @default(true)
+  mustChangePassword   Boolean                @default(false)
+  lastLogin            DateTime?
+  createdAt            DateTime               @default(now())
+
+  passwordResetTokens  PasswordResetToken[]
+  userClientAccesses   UserClientAccess[]
+  clientsCreated       Client[]               @relation("ClientCreator")
+  notifications        Notification[]
+  syncThrottleTriggers SyncThrottle[]
+  
+  @@map("users")
+}
+
+model PasswordResetToken {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String                 @db.Uuid
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash            String                 @db.Text
+  expiresAt            DateTime
+  usedAt               DateTime?
+  createdAt            DateTime               @default(now())
+
+  @@index([userId]) // Partial index for usedAt IS NULL will be created via raw SQL
+  @@map("password_reset_tokens")
+}
+
+model Client {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                 @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                 String                 @db.VarChar(255)
+  fantasyName          String?                @db.VarChar(255)
+  notes                String?                @db.Text
+  isActive             Boolean                @default(true)
+  createdById          String?                @db.Uuid
+  createdBy            User?                  @relation("ClientCreator", fields: [createdById], references: [id])
+  createdAt            DateTime               @default(now())
+
+  establishments       Establishment[]
+  processParties       ProcessParty[]
+  userClientAccesses   UserClientAccess[]
+  notifications        Notification[]
+  syncJobs             SyncJob[]
+  syncThrottle         SyncThrottle?
+
+  @@map("clients")
+}
+
+model UserClientAccess {
+  userId               String                 @db.Uuid
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId             String                 @db.Uuid
+  client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@id([userId, clientId])
+  @@index([userId])
+  @@map("user_client_access")
+}
+
+model Establishment {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clientId             String                 @db.Uuid
+  client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tenantId             String                 @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cnpj                 String                 @db.Char(18)
+  razaoSocial          String                 @db.VarChar(255)
+  fantasyName          String?                @db.VarChar(255)
+  type                 String                 @default("matriz") @db.VarChar(10)
+  state                String?                @db.Char(2)
+  city                 String?                @db.VarChar(100)
+  isActive             Boolean                @default(true)
+  createdAt            DateTime               @default(now())
+
+  processParties       ProcessParty[]
+
+  @@unique([tenantId, cnpj])
+  @@map("establishments")
+}
+
+model Process {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                 @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  processNumber        String                 @db.VarChar(25)
+  
+  tribunal             String?                @db.VarChar(100)
+  tribunalCode         String[]               @db.VarChar(10)
+  justiceType          String?                @db.VarChar(20)
+  varaOrgao            String?                @db.VarChar(200)
+  systemOrigin         String?                @db.VarChar(20)
+  
+  className            String?                @db.VarChar(200)
+  subjectMain          String?                @db.VarChar(200)
+  subjectsExtra        String[]
+  
+  value                BigInt?
+  
+  distributionDate     DateTime?              @db.Date
+  firstSeenAt          DateTime               @default(now())
+  lastSyncAt           DateTime?
+  
+  status               String                 @default("ativo") @db.VarChar(30)
+  phase                String?                @db.VarChar(200)
+  involvedParties      Json?
+  
+  sourceAdapter        String                 @db.VarChar(20)
+  rawData              Json?
+  
+  processParties       ProcessParty[]
+  movements            Movement[]
+  notifications        Notification[]
+
+  @@unique([tenantId, processNumber])
+  @@index([tenantId])
+  @@map("processes")
+}
+
+model ProcessParty {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  processId            String                 @db.Uuid
+  process              Process                @relation(fields: [processId], references: [id], onDelete: Cascade)
+  clientId             String                 @db.Uuid
+  client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  establishmentId      String                 @db.Uuid
+  establishment        Establishment          @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  tenantId             String                 @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  polo                 String?                @db.VarChar(10)
+  isPrimary            Boolean                @default(false)
+  isActive             Boolean                @default(true)
+  linkedAt             DateTime               @default(now())
+
+  @@unique([processId, establishmentId])
+  @@index([processId])
+  @@map("process_parties")
+}
+
+model Movement {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  processId            String                 @db.Uuid
+  process              Process                @relation(fields: [processId], references: [id], onDelete: Cascade)
+  tenantId             String                 @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  sourceEventId        String                 @db.VarChar(100)
+  
+  eventDate            DateTime               @db.Timestamptz
+  eventCode            String?                @db.VarChar(20)
+  eventName            String                 @db.VarChar(255)
+  eventTypeGroup       String                 @db.VarChar(30)
+  description          String?                @db.Text
+  complement           String?                @db.Text
+  
+  publishedAt          DateTime?              @db.Timestamptz
+  syncedAt             DateTime               @default(now())
+  
+  importType           String                 @db.VarChar(20)
+  source               String                 @db.VarChar(20)
+  rawData              Json?
+
+  notifications        Notification[]
+
+  @@unique([processId, sourceEventId])
+  @@index([tenantId])
+  @@index([processId, eventDate(sort: Desc)])
+  @@map("movements")
+}
+
+model Notification {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                 @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId               String                 @db.Uuid
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId             String?                @db.Uuid
+  client               Client?                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  
+  type                 String                 @db.VarChar(50)
+  processId            String?                @db.Uuid
+  process              Process?               @relation(fields: [processId], references: [id], onDelete: Cascade)
+  movementId           String?                @db.Uuid
+  movement             Movement?              @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  
+  title                String                 @db.VarChar(255)
+  description          String?                @db.Text
+  isRead               Boolean                @default(false)
+  createdAt            DateTime               @default(now())
+
+  // Partial index for isRead = false will be created via raw SQL migration
+  @@map("notifications")
+}
+
+model SyncJob {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                 @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientId             String?                @db.Uuid
+  client               Client?                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  
+  triggeredBy          String                 @db.VarChar(255)
+  type                 String                 @db.VarChar(20)
+  startedAt            DateTime               @default(now())
+  finishedAt           DateTime?
+  status               String                 @default("running") @db.VarChar(20)
+  
+  clientsProcessed     Int                    @default(0)
+  newProcessesFound    Int                    @default(0)
+  newMovementsFound    Int                    @default(0)
+  failedEstablishments Json                   @default("[]")
+  partialErrorCount    Int                    @default(0)
+  errorMessage         String?                @db.Text
+
+  @@index([tenantId, startedAt(sort: Desc)])
+  // Partial unique index for running status will be created via raw SQL
+  @@map("sync_jobs")
+}
+
+model AuditLog {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String?                @db.Uuid
+  tenant               Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId               String?                @db.Uuid
+  userName             String?                @db.VarChar(255)
+  action               String                 @db.VarChar(50)
+  entityType           String?                @db.VarChar(50)
+  entityId             String?                @db.Uuid
+  metadata             Json?
+  ipAddress            String?                // Prisma doesn't support inet natively yet, String is used
+  createdAt            DateTime               @default(now())
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+model SyncConfig {
+  tenantId             String                 @id @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  daysOfWeek           Int[]                  @default([1, 2, 3, 4, 5])
+  times                String[]               @default(["07:00"])
+  timezone             String                 @default("America/Sao_Paulo") @db.VarChar(50)
+  onlyActiveClients    Boolean                @default(true)
+  tribunalTypes        String[]
+  isActive             Boolean                @default(true)
+  updatedAt            DateTime               @default(now())
+
+  @@map("sync_config")
+}
+
+model SyncThrottle {
+  clientId             String                 @id @db.Uuid
+  client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lastManualAt         DateTime
+  triggeredById        String?                @db.Uuid
+  triggeredBy          User?                  @relation(fields: [triggeredById], references: [id])
+
+  @@map("sync_throttle")
+}

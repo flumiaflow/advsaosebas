@@ -1,0 +1,107 @@
+.layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 250px;
+  background-color: var(--color-bg-surface);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.brand {
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.badge {
+  background-color: var(--color-danger);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.nav {
+  padding: 1rem 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.nav a:hover {
+  background-color: var(--color-bg-surface-hover);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.nav a.active {
+  background-color: var(--color-bg-surface-hover);
+  color: var(--color-primary);
+  border-right: 3px solid var(--color-primary);
+}
+
+.userSection {
+  padding: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+}
+
+.userInfo strong {
+  font-size: 0.875rem;
+}
+
+.userInfo span {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.logoutBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  padding: 0.5rem;
+  border-radius: 6px;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.logoutBtn:hover {
+  background: var(--color-bg-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  background-color: var(--color-bg-base);
+  padding: 2rem;
+}

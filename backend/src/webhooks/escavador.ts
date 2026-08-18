@@ -1,0 +1,100 @@
+import { Request, Response } from 'express';
+import crypto from 'crypto';
+import { prisma } from '../config/db';
+import { getIO } from '../socket';
+
+export async function escavadorWebhook(req: Request, res: Response) {
+  try {
+    const signature = req.headers['x-escavador-signature'] as string;
+    const payload = JSON.stringify(req.body);
+    const secret = process.env.ESCAVADOR_WEBHOOK_SECRET;
+
+    if (!secret) {
+      console.warn('ESCAVADOR_WEBHOOK_SECRET not configured. Accepting mock webhook.');
+    } else if (signature) {
+      const hmac = crypto.createHmac('sha256', secret);
+      const digest = hmac.update(payload).digest('hex');
+      if (signature !== digest) {
+        return res.status(401).json({ error: 'Assinatura HMAC inválida' });
+      }
+    }
+
+    const { tenantId, processNumber, eventId, date, code, name, typeGroup, description } = req.body;
+    
+    if (!tenantId || !processNumber || !eventId || !name) {
+      return res.status(400).json({ error: 'Payload incompleto' });
+    }
+
+    let processRecord = await prisma.process.findFirst({
+      where: { tenantId, processNumber }
+    });
+
+    if (!processRecord) {
+      processRecord = await prisma.process.create({
+        data: {
+          tenantId,
+          processNumber,
+          sourceAdapter: 'escavador',
+          status: 'ativo'
+        }
+      });
+    }
+
+    const existing = await prisma.movement.findUnique({
+      where: {
+        processId_sourceEventId: {
+          processId: processRecord.id,
+          sourceEventId: eventId
+        }
+      }
+    });
+
+    if (!existing) {
+      const movRecord = await prisma.movement.create({
+        data: {
+          processId: processRecord.id,
+          tenantId,
+          sourceEventId: eventId,
+          eventDate: new Date(date || Date.now()),
+          eventCode: code || null,
+          eventName: name,
+          eventTypeGroup: typeGroup || 'andamento',
+          description: description || '',
+          importType: 'scheduled',
+          source: 'escavador'
+        }
+      });
+
+      const parties = await prisma.processParty.findMany({ where: { processId: processRecord.id }});
+      const clientIds = [...new Set(parties.map(p => p.clientId))];
+
+      for (const clientId of clientIds) {
+        const accesses = await prisma.userClientAccess.findMany({ where: { clientId } });
+        const supervisorAccesses = await prisma.user.findMany({ where: { tenantId, role: 'supervisor' }});
+        const usersToNotify = new Set([...accesses.map(a => a.userId), ...supervisorAccesses.map(s => s.id)]);
+
+        const notifications = Array.from(usersToNotify).map(userId => ({
+          tenantId, userId, clientId, type: 'NEW_MOVEMENT', processId: processRecord.id, movementId: movRecord.id,
+          title: `Nova movimentação (Escavador): ${name}`
+        }));
+
+        if (notifications.length > 0) {
+          await prisma.notification.createMany({ data: notifications });
+          const io = getIO();
+          for (const userId of usersToNotify) {
+            io.to(`user:${userId}`).emit('notification:new', {
+              title: `Nova movimentação (Escavador): ${name}`,
+              processId: processRecord.id
+            });
+          }
+        }
+      }
+    }
+
+    return res.status(200).send('OK');
+
+  } catch (error) {
+    console.error('Error processing Escavador webhook:', error);
+    return res.status(500).send('Internal Server Error');
+  }
+}

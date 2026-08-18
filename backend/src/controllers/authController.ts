@@ -151,6 +151,10 @@ export async function getMe(req: Request, res: Response) {
   try {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'Não autorizado' });
+    
+    // Ler os campos do payload do token customizado que o middleware de auth adiciona no req.user
+    const isImpersonating = (req.user as any).isImpersonating || false;
+    const originalRole = (req.user as any).originalRole || null;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -176,7 +180,13 @@ export async function getMe(req: Request, res: Response) {
       return res.status(404).json({ error: 'Usuário não encontrado' });
     }
 
-    return res.status(200).json({ user });
+    return res.status(200).json({ 
+      user: {
+        ...user,
+        isImpersonating,
+        originalRole
+      }
+    });
   } catch (error) {
     console.error('GetMe error:', error);
     return res.status(500).json({ error: 'Erro interno no servidor' });
@@ -285,3 +295,87 @@ export async function changePassword(req: Request, res: Response) {
 }
 
 
+export async function impersonate(req: Request, res: Response) {
+  try {
+    const { tenantId } = req.params;
+    
+    // Apenas Super Admins podem invadir escritórios
+    if (req.user?.role !== 'super_admin' && !(req.user as any)?.originalRole) {
+      return res.status(403).json({ error: 'Permissão negada' });
+    }
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) return res.status(404).json({ error: 'Escritório não encontrado' });
+
+    // Gera um novo Token passando-se por Supervisor do Escritório Alvo
+    const { accessToken, refreshToken } = generateTokens(
+      req.user.userId, 
+      tenantId, 
+      'supervisor', 
+      true, // isImpersonating
+      'super_admin' // originalRole
+    );
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 1 * 24 * 60 * 60 * 1000 // 1 dia para sessão fantasma
+    });
+
+    await logAuditAction({
+      tenantId: null, // Logado no contexto do sistema
+      userId: req.user.userId,
+      action: 'IMPERSONATE_START',
+      metadata: { targetTenantId: tenantId, targetTenantName: tenant.name }
+    });
+
+    return res.status(200).json({
+      accessToken,
+      message: `Acessando como administrador do escritório ${tenant.name}`
+    });
+  } catch (error) {
+    console.error('Impersonate error:', error);
+    return res.status(500).json({ error: 'Erro ao invadir escritório' });
+  }
+}
+
+export async function impersonateExit(req: Request, res: Response) {
+  try {
+    const isImpersonating = (req.user as any).isImpersonating;
+    const originalRole = (req.user as any).originalRole;
+
+    if (!isImpersonating || originalRole !== 'super_admin') {
+      return res.status(400).json({ error: 'Sessão atual não é uma sessão fantasma' });
+    }
+
+    // Retorna ao estado normal (tenantId null, role super_admin)
+    const { accessToken, refreshToken } = generateTokens(
+      req.user!.userId, 
+      null, 
+      'super_admin'
+    );
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    await logAuditAction({
+      tenantId: null,
+      userId: req.user!.userId,
+      action: 'IMPERSONATE_EXIT',
+      metadata: { fromTenantId: req.user!.tenantId }
+    });
+
+    return res.status(200).json({
+      accessToken,
+      message: 'Sessão fantasma encerrada. Retornando ao Backoffice.'
+    });
+  } catch (error) {
+    console.error('Impersonate Exit error:', error);
+    return res.status(500).json({ error: 'Erro ao encerrar sessão fantasma' });
+  }
+}

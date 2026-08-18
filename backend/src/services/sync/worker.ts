@@ -22,7 +22,10 @@ export async function addSyncJob(tenantId: string, clientId: string, triggeredBy
   if (useRedis && syncQueue) {
     await syncQueue.add('sync-client', { tenantId, clientId, triggeredBy });
   } else {
-    console.log('[MOCK] Fila desativada (NO_REDIS). Simulando inserção do job na fila.');
+    console.log('[FALLBACK] Fila desativada (NO_REDIS). Executando o job sincronamente no Node...');
+    handleSyncJob({ data: { tenantId, clientId, triggeredBy } }).catch(e => {
+      console.error('[FALLBACK] Erro no worker síncrono:', e);
+    });
   }
 }
 
@@ -34,7 +37,7 @@ export const syncWorker = useRedis ? new Worker(QUEUE_NAME, async (job) => {
   return handleSyncJob(job);
 }, { connection: redisConnection }) : null as any;
 
-async function handleSyncJob(job: any) {
+export async function handleSyncJob(job: any) {
   const { tenantId, clientId, triggeredBy } = job.data;
   const adapter = new DataJudAdapter();
 
@@ -220,7 +223,7 @@ async function handleSyncJob(job: any) {
   }
 }
 
-async function handleImportJob(job: any) {
+export async function handleImportJob(job: any) {
   const { tenantId, clientId, processNumbers, triggeredBy } = job.data;
   console.log(`[WORKER] Iniciando Importação em lote. Tenant: ${tenantId}, Client: ${clientId}`);
 

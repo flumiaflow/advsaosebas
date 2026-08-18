@@ -9,13 +9,15 @@ export interface TokenPayload {
   tenantId: string | null;
   role: string;
   jti: string; // unique token id
+  isImpersonating?: boolean;
+  originalRole?: string;
 }
 
-export function generateTokens(userId: string, tenantId: string | null, role: string) {
+export function generateTokens(userId: string, tenantId: string | null, role: string, isImpersonating?: boolean, originalRole?: string) {
   // Generate a random jti (JWT ID)
   const jti = require('crypto').randomUUID();
   
-  const payload: TokenPayload = { userId, tenantId, role, jti };
+  const payload: TokenPayload = { userId, tenantId, role, jti, isImpersonating, originalRole };
   
   const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
   const refreshToken = jwt.sign(payload, JWT_SECRET, { expiresIn: REFRESH_EXPIRES_IN });

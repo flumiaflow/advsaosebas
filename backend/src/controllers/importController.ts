@@ -79,7 +79,29 @@ export async function confirmImport(req: Request, res: Response) {
     }
 
     if (!syncQueue) {
-      return res.status(500).json({ error: 'Fila de processamento desativada (NO_REDIS).' });
+      // Fallback síncrono para desenvolvimento sem Redis
+      console.log('[FALLBACK] Fila desativada. Disparando importação background no Node...');
+      
+      const { handleImportJob } = await import('../services/sync/worker');
+      const jobId = 'mock-job-' + Date.now();
+      
+      handleImportJob({
+        data: { tenantId, clientId, processNumbers, triggeredBy: req.user.userId }
+      }).catch(e => {
+        console.error('[FALLBACK] Erro fatal no worker de importação:', e);
+      });
+
+      await logAuditAction({
+        tenantId,
+        userId: req.user.userId,
+        action: 'IMPORT_ENQUEUED',
+        metadata: { count: processNumbers.length, clientId, jobId }
+      });
+
+      return res.status(202).json({
+        message: 'Importação enviada para processamento em background (Fallback local).',
+        jobId
+      });
     }
 
     // Enqueue background import job

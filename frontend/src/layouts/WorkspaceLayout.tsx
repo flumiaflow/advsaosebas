@@ -1,14 +1,27 @@
-import { Outlet, Link, useLocation } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { LayoutDashboard, Users, FileText, Settings, ShieldAlert, UsersRound, LogOut } from 'lucide-react';
+import { api } from '../services/api';
+import { LayoutDashboard, Users, FileText, Settings, ShieldAlert, UsersRound, LogOut, EyeOff } from 'lucide-react';
 import NotificationBadge from '../components/NotificationBadge';
 import styles from './Layout.module.css';
 
 export default function WorkspaceLayout() {
-  const { user, logout } = useAuth();
+  const { user, logout, initAuth } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const isSupervisor = user?.role === 'supervisor';
+  const isImpersonating = (user as any)?.isImpersonating;
+
+  const handleExitImpersonate = async () => {
+    try {
+      await api.post('/auth/impersonate/exit');
+      await initAuth();
+      navigate('/backoffice');
+    } catch (e) {
+      console.error('Erro ao sair da sessão fantasma', e);
+    }
+  };
 
   return (
     <div className={styles.layout}>
@@ -61,6 +74,31 @@ export default function WorkspaceLayout() {
       </aside>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {isImpersonating && (
+          <div style={{ 
+            backgroundColor: '#F59E0B', 
+            color: '#fff', 
+            padding: '0.75rem 2rem', 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            fontSize: '0.875rem',
+            fontWeight: 500
+          }}>
+            <span>Atenção: Visualizando ambiente como Administrador. Ações feitas aqui serão registradas em log.</span>
+            <button 
+              onClick={handleExitImpersonate}
+              style={{ 
+                background: 'rgba(0,0,0,0.2)', border: 'none', color: '#fff', 
+                padding: '0.5rem 1rem', borderRadius: '4px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '0.5rem'
+              }}
+            >
+              <EyeOff size={16} /> Voltar ao Backoffice
+            </button>
+          </div>
+        )}
+
         <header style={{ height: '60px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 2rem', backgroundColor: 'var(--color-bg-surface)' }}>
           <NotificationBadge />
         </header>

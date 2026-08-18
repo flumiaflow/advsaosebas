@@ -1,8 +1,14 @@
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api';
+import { useAuth } from '../../hooks/useAuth';
+import { Eye } from 'lucide-react';
 import styles from './Backoffice.module.css';
 
 export default function Tenants() {
+  const navigate = useNavigate();
+  const { initAuth } = useAuth();
+
   const { data: tenants, isLoading } = useQuery({
     queryKey: ['backoffice', 'tenants'],
     queryFn: async () => {
@@ -10,6 +16,17 @@ export default function Tenants() {
       return data.tenants;
     }
   });
+
+  const handleImpersonate = async (tenantId: string) => {
+    try {
+      await api.post(`/auth/impersonate/${tenantId}`);
+      await initAuth();
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Erro ao acessar workspace', error);
+      alert('Erro ao acessar o workspace desse escritório.');
+    }
+  };
 
   if (isLoading) return <div>Carregando...</div>;
 
@@ -52,9 +69,15 @@ export default function Tenants() {
                     </span>
                   </td>
                   <td>{new Date(tenant.createdAt).toLocaleDateString('pt-BR')}</td>
-                  <td>
-                    {/* Ações (Editar, Suspender) - Mock v1 */}
-                    <button style={{ background: 'transparent', color: 'var(--color-primary)', border: 'none' }}>Editar</button>
+                  <td style={{ display: 'flex', gap: '1rem' }}>
+                    <button style={{ background: 'transparent', color: 'var(--color-primary)', border: 'none', cursor: 'pointer' }}>Editar</button>
+                    <button 
+                      onClick={() => handleImpersonate(tenant.id)}
+                      style={{ background: 'transparent', color: 'var(--color-text-secondary)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                      title="Acessar como Administrador deste escritório"
+                    >
+                      <Eye size={16} /> Acessar
+                    </button>
                   </td>
                 </tr>
               ))}

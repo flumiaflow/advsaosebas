@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import passport from 'passport';
-import { login, logout, getMe, forgotPassword, resetPassword, changePassword, refresh } from '../controllers/authController';
+import { login, logout, getMe, forgotPassword, resetPassword, changePassword, refresh, impersonate, impersonateExit } from '../controllers/authController';
 import { authMiddleware } from '../middlewares/auth';
 import { generateTokens } from '../utils/jwt';
 
@@ -13,6 +13,10 @@ router.post('/reset-password', resetPassword);
 router.post('/change-password', authMiddleware, changePassword);
 router.post('/refresh', refresh);
 router.get('/me', authMiddleware, getMe);
+
+// --- Impersonation (Super Admin) ---
+router.post('/impersonate/exit', authMiddleware, impersonateExit);
+router.post('/impersonate/:tenantId', authMiddleware, impersonate);
 
 // --- Google OAuth ---
 // Rota para iniciar o fluxo OAuth

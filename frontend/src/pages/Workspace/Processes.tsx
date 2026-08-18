@@ -11,9 +11,26 @@ export default function Processes() {
     queryKey: ['workspace', 'processes'],
     queryFn: async () => {
       const { data } = await api.get('/processes');
-      return data.processes;
+      return data.processes || data;
     }
   });
+
+  const { data: processDetails, isLoading: isLoadingDetails } = useQuery({
+    queryKey: ['workspace', 'process', selectedProcess?.id],
+    queryFn: async () => {
+      const { data } = await api.get(`/processes/${selectedProcess.id}`);
+      return data;
+    },
+    enabled: !!selectedProcess?.id
+  });
+
+  const getMovementColor = (typeGroup: string) => {
+    const lower = typeGroup.toLowerCase();
+    if (lower.includes('sentença') || lower.includes('julgamento')) return 'var(--color-danger)';
+    if (lower.includes('decisão') || lower.includes('despacho')) return 'var(--color-warning)';
+    if (lower.includes('petição') || lower.includes('juntada')) return 'var(--color-primary)';
+    return 'var(--color-border)';
+  };
 
   if (isLoading) return <div>Carregando...</div>;
 
@@ -91,24 +108,29 @@ export default function Processes() {
                 {/* Timeline line */}
                 <div style={{ position: 'absolute', top: 0, bottom: 0, left: '18px', width: '2px', backgroundColor: 'var(--color-border)' }} />
                 
-                {/* Mocked movements since the backend didn't return them in this endpoint */}
-                <div style={{ position: 'relative', paddingLeft: '2rem', paddingBottom: '2rem' }}>
-                  <div style={{ position: 'absolute', top: '4px', left: '0', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--color-primary)', zIndex: 1 }} />
-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>Hoje, 14:30</div>
-                  <div style={{ backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px' }}>
-                    <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Conclusão para Julgamento</div>
-                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>Os autos foram conclusos ao magistrado para deliberação final.</p>
-                  </div>
-                </div>
-
-                <div style={{ position: 'relative', paddingLeft: '2rem', paddingBottom: '2rem' }}>
-                  <div style={{ position: 'absolute', top: '4px', left: '0', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--color-border)', zIndex: 1 }} />
-                  <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>Ontem, 09:15</div>
-                  <div style={{ backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px' }}>
-                    <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Juntada de Petição</div>
-                    <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>Petição anexada pelo advogado do réu.</p>
-                  </div>
-                </div>
+                {isLoadingDetails ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>Carregando linha do tempo...</div>
+                ) : processDetails?.movements?.length > 0 ? (
+                  processDetails.movements.map((mov: any) => (
+                    <div key={mov.id} style={{ position: 'relative', paddingLeft: '2rem', paddingBottom: '2rem' }}>
+                      <div style={{ position: 'absolute', top: '4px', left: '0', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: getMovementColor(mov.eventTypeGroup), zIndex: 1 }} />
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '0.25rem' }}>
+                        {new Date(mov.eventDate).toLocaleString('pt-BR')}
+                      </div>
+                      <div style={{ backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border)', padding: '1rem', borderRadius: '6px' }}>
+                        <div style={{ fontWeight: 600, marginBottom: '0.5rem' }}>{mov.eventName}</div>
+                        {mov.description && (
+                          <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>{mov.description}</p>
+                        )}
+                        <span style={{ display: 'inline-block', marginTop: '0.5rem', fontSize: '0.7rem', padding: '0.2rem 0.5rem', backgroundColor: 'var(--color-bg-surface-hover)', borderRadius: '4px' }}>
+                          {mov.eventTypeGroup}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-text-secondary)' }}>Nenhuma movimentação registrada.</div>
+                )}
               </div>
             </div>
           </>

@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// Mock structure based on DataJud API response
 export interface DataJudProcess {
   processNumber: string;
   justiceType: string;
@@ -26,129 +25,175 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export class DataJudAdapter {
   private apiKey: string;
-  private baseUrl = 'https://api-publica.datajud.cnj.jus.br/api_publica_tst/v1'; // TST/TRT ex
+  // Usando a TST como base conforme plano
+  private baseUrl = 'https://api-publica.datajud.cnj.jus.br/api_publica_tst/v1';
 
   constructor() {
-    // Para simplificar, pegamos a env global (que é pública conforme o plano)
-    this.apiKey = process.env.DATAJUD_API_KEY || 'mock_datajud_key';
+    this.apiKey = process.env.DATAJUD_API_KEY || '';
   }
 
-  // Tries to fetch data with max 3 attempts and rate limit back-off
   async fetchByCnpj(cnpj: string): Promise<DataJudProcess[]> {
+    if (!this.apiKey || this.apiKey === 'mock_datajud_key') {
+      console.warn('[DATAJUD] Chave da API inválida ou mock. Retornando vazio para não quebrar fluxo.');
+      return [];
+    }
+
+    const cleanCnpj = cnpj.replace(/\D/g, '');
+    let searchAfter: string[] | null = null;
+    const allResults: DataJudProcess[] = [];
     let attempts = 0;
     const maxAttempts = 3;
-    let searchAfter: string | null = null;
-    const allResults: DataJudProcess[] = [];
 
-    while (attempts < maxAttempts) {
+    while (true) {
       try {
         const payload: any = {
           query: {
-            match: { "partes.numero_documento": cnpj }
+            match: { "partes.numero_documento": cleanCnpj }
           },
-          size: 100 // max elements per page
+          size: 100,
+          sort: [{ "@timestamp": "desc" }]
         };
 
         if (searchAfter) {
           payload.search_after = searchAfter;
         }
 
-        // --- MOCK INICIO ---
-        // Simular comportamento sem fazer requisição real à DataJud ainda
-        console.log(`[DATAJUD ADAPTER] Buscando CNPJ ${cnpj}, página com search_after: ${searchAfter}`);
-        await sleep(1000); // Simulate network
+        console.log(`[DATAJUD ADAPTER] Buscando CNPJ ${cleanCnpj}... (Página, registros até agora: ${allResults.length})`);
         
-        // Simulação de retorno de 1 processo mock na primeira chamada
-        if (!searchAfter) {
-          const mockData: DataJudProcess = {
-            processNumber: `0001234-56.2023.5.02.0000`,
-            justiceType: 'Trabalho',
-            tribunal: 'TRT2',
-            className: 'Ação Trabalhista',
-            subjectMain: 'Horas Extras',
-            subjectsExtra: [],
-            value: 5000000,
-            distributionDate: new Date(),
-            status: 'Ativo',
-            parties: [{ name: 'Empresa Teste SA', type: 'Reclamado' }],
-            movements: [{
-              eventId: 'mov_12345',
-              date: new Date(),
-              code: '123',
-              name: 'Sentença Proferida',
-              typeGroup: 'Sentença',
-              description: 'Julgamento procedente em parte'
-            }]
-          };
-          allResults.push(mockData);
-        }
-        
-        // Simular que não tem mais páginas
-        break; 
-        // --- MOCK FIM ---
-
-        /* Código real ficaria mais ou menos assim:
         const response = await axios.post(`${this.baseUrl}/_search`, payload, {
           headers: {
-            'Authorization': `ApiKey ${this.apiKey}`,
+            'Authorization': `APIKey ${this.apiKey}`,
             'Content-Type': 'application/json'
           }
         });
 
-        // Parse response, map to DataJudProcess...
-        // searchAfter = response.data.hits.hits[last].sort;
-        */
+        const hits = response.data?.hits?.hits || [];
+        
+        for (const hit of hits) {
+          const mapped = this.mapDataJudResponse(hit);
+          if (mapped) allResults.push(mapped);
+        }
+
+        if (hits.length < 100) {
+          break; // Sem mais páginas
+        }
+
+        const lastHit = hits[hits.length - 1];
+        if (lastHit && lastHit.sort) {
+          searchAfter = lastHit.sort;
+          attempts = 0; // reseta rate limit error count
+        } else {
+          break;
+        }
 
       } catch (error: any) {
         if (error.response && error.response.status === 429) {
-          // Rate Limit
-          console.warn(`[DATAJUD] Rate limit atingido para ${cnpj}. Aguardando 60s...`);
+          attempts++;
+          console.warn(`[DATAJUD] Rate limit (429) atingido. Tentativa ${attempts}/${maxAttempts}. Aguardando 60s...`);
+          if (attempts >= maxAttempts) {
+            throw new Error(`[DATAJUD] Falha ao sincronizar CNPJ ${cleanCnpj} após ${maxAttempts} tentativas de Rate Limit.`);
+          }
           await sleep(60000); 
-          attempts++;
         } else {
-          console.error(`[DATAJUD] Erro ao buscar CNPJ ${cnpj}:`, error.message);
-          attempts++;
-          await sleep(2000); // Back-off básico
+          console.error(`[DATAJUD] Erro HTTP ao buscar CNPJ ${cleanCnpj}:`, error?.response?.data || error.message);
+          throw new Error(`[DATAJUD] Erro na API do CNJ: ${error.message}`);
         }
       }
-    }
-
-    if (attempts === maxAttempts) {
-      throw new Error(`Falha ao sincronizar CNPJ ${cnpj} após ${maxAttempts} tentativas.`);
     }
 
     return allResults;
   }
 
   async fetchByProcessNumber(processNumber: string): Promise<DataJudProcess | null> {
-    // --- MOCK ---
-    console.log(`[DATAJUD ADAPTER] Buscando processo específico: ${processNumber}`);
-    await sleep(500);
-
-    // Se o processo terminar em '0000', simulamos que não foi encontrado.
-    if (processNumber.endsWith('0000')) {
+    if (!this.apiKey || this.apiKey === 'mock_datajud_key') {
+      console.warn('[DATAJUD] Chave da API inválida ou mock. Sincronização de processo único interrompida.');
       return null;
     }
 
+    const cleanNumber = processNumber.replace(/\D/g, '');
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+      try {
+        const payload = {
+          query: {
+            match: { "numeroProcesso": cleanNumber }
+          },
+          size: 1
+        };
+
+        const response = await axios.post(`${this.baseUrl}/_search`, payload, {
+          headers: {
+            'Authorization': `APIKey ${this.apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        const hits = response.data?.hits?.hits || [];
+        if (hits.length === 0) return null;
+
+        return this.mapDataJudResponse(hits[0]);
+
+      } catch (error: any) {
+        if (error.response && error.response.status === 429) {
+          attempts++;
+          console.warn(`[DATAJUD] Rate limit (429) atingido para ${cleanNumber}. Aguardando 60s...`);
+          await sleep(60000);
+        } else {
+          console.error(`[DATAJUD] Erro HTTP ao buscar processo ${cleanNumber}:`, error?.response?.data || error.message);
+          return null; 
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  private mapDataJudResponse(hit: any): DataJudProcess | null {
+    const source = hit._source;
+    if (!source) return null;
+
+    const mappedMovements = (source.movimentos || []).map((m: any) => {
+      let desc = '';
+      if (Array.isArray(m.complementosTabelados)) {
+        desc = m.complementosTabelados.map((comp: any) => `${comp.nome || ''} - ${comp.valor || ''}`).join(' | ');
+      }
+
+      return {
+        eventId: String(m.identificadorMovimento || m.codigo || Math.random().toString(36)),
+        date: new Date(m.dataHora),
+        code: String(m.codigo || '0'),
+        name: m.nome || 'Movimentação Genérica',
+        typeGroup: m.nome || 'Outros', 
+        description: desc || 'Sem complementos'
+      };
+    });
+
+    const mappedParties = (source.partes || []).map((p: any) => ({
+      name: p.pessoa?.nome || 'Desconhecido',
+      type: p.polo || 'Indefinido'
+    }));
+
+    let subjectMain = 'Não informado';
+    let subjectsExtra: string[] = [];
+    if (Array.isArray(source.assuntos) && source.assuntos.length > 0) {
+      subjectMain = source.assuntos[0]?.nome || 'Não informado';
+      subjectsExtra = source.assuntos.slice(1).map((s: any) => s.nome).filter(Boolean);
+    }
+
     return {
-      processNumber,
-      justiceType: 'Trabalho',
-      tribunal: 'TRT2',
-      className: 'Ação Trabalhista (Histórico)',
-      subjectMain: 'Horas Extras',
-      subjectsExtra: [],
-      value: 10000,
-      distributionDate: new Date('2020-01-01'),
+      processNumber: source.numeroProcesso,
+      justiceType: source.orgaoJulgador?.nome || 'Desconhecido',
+      tribunal: source.tribunal || 'Não informado',
+      className: source.classe?.nome || 'Não informada',
+      subjectMain,
+      subjectsExtra,
+      value: source.valorCausa || 0,
+      distributionDate: source.dataAjuizamento ? new Date(source.dataAjuizamento) : new Date(),
       status: 'Ativo',
-      parties: [{ name: 'Empresa Teste', type: 'Reclamado' }],
-      movements: [{
-        eventId: 'mov_old_1',
-        date: new Date('2020-02-01'),
-        code: '123',
-        name: 'Petição Inicial',
-        typeGroup: 'Petição',
-        description: 'Distribuição da ação'
-      }]
+      parties: mappedParties,
+      movements: mappedMovements
     };
   }
 }

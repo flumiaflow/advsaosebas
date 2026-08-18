@@ -220,6 +220,16 @@ export async function handleSyncJob(job: any) {
         errorMessage: globalError.message
       }
     });
+
+    if (triggeredBy === 'system') {
+      const { logAuditAction } = await import('../../middlewares/auditLogger');
+      await logAuditAction({
+        tenantId,
+        userId: 'system',
+        action: 'SYNC_AUTO_FAILED',
+        metadata: { jobId: syncJobRecord.id, clientId, error: globalError.message }
+      }).catch(console.error);
+    }
   }
 }
 

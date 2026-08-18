@@ -2,24 +2,18 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import styles from '../Backoffice/Backoffice.module.css';
-import { FileText, Users, AlertCircle } from 'lucide-react';
+import { FileText, Users, AlertCircle, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export default function WorkspaceDashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   
   const { data: stats, isLoading } = useQuery({
     queryKey: ['workspace', 'dashboard'],
     queryFn: async () => {
-      // Esse endpoint seria ideal existir no backend para resumir os dados
-      // Mas podemos compor fazendo multiplas chamadas:
-      const [clientsRes, processesRes] = await Promise.all([
-        api.get('/clients'),
-        api.get('/processes')
-      ]);
-      return {
-        clients: clientsRes.data.clients.length,
-        processes: processesRes.data.processes.length
-      };
+      const { data } = await api.get('/dashboard/metrics');
+      return data;
     }
   });
 
@@ -31,6 +25,46 @@ export default function WorkspaceDashboard() {
         <h1>Olá, {user?.name}</h1>
         <p>Acompanhe as movimentações de seus clientes</p>
       </header>
+
+      {user?.role === 'supervisor' && stats?.systemSyncError && (
+        <div style={{
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid var(--color-danger)',
+          color: 'var(--color-danger)',
+          padding: '1rem',
+          borderRadius: '8px',
+          marginBottom: '2rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <AlertCircle size={20} />
+            <div>
+              <h4 style={{ margin: '0 0 0.25rem 0', fontWeight: 600 }}>Falha na Sincronização Automática</h4>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>O último job automático de sincronização falhou. Verifique os logs de auditoria.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => navigate('/dashboard/clients')}
+            style={{
+              backgroundColor: 'var(--color-danger)',
+              color: 'white',
+              border: 'none',
+              padding: '0.5rem 1rem',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontWeight: 600,
+              fontSize: '0.875rem'
+            }}
+          >
+            <RefreshCw size={16} /> Sincronizar Manualmente
+          </button>
+        </div>
+      )}
 
       <div className={styles.grid}>
         <div className={styles.card}>

@@ -20,6 +20,7 @@ import syncConfigRoutes from './routes/syncConfigRoutes';
 import exportRoutes from './routes/exportRoutes';
 import importRoutes from './routes/importRoutes';
 import webhookRoutes from './routes/webhookRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -49,6 +50,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Healthcheck endpoint
 app.get('/health', (req, res) => {

@@ -3,7 +3,11 @@ import { prisma } from '../config/db';
 
 export async function getDashboardMetrics(req: Request, res: Response) {
   try {
-    const tenantId = req.user?.tenantId!;
+    let tenantId = req.user?.tenantId;
+    if (!tenantId && req.user?.role === 'super_admin') {
+      const firstTenant = await prisma.tenant.findFirst();
+      tenantId = firstTenant?.id;
+    }
     const userId = req.user?.userId;
     const role = req.user?.role;
 
@@ -19,7 +23,7 @@ export async function getDashboardMetrics(req: Request, res: Response) {
 
     const activeClients = await prisma.client.count({
       where: {
-        tenantId,
+        ...(tenantId && { tenantId }),
         isActive: true,
         ...(clientIds && { id: { in: clientIds } })
       }
@@ -48,7 +52,7 @@ export async function getDashboardMetrics(req: Request, res: Response) {
         tenantId,
         triggeredBy: 'system'
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { startedAt: 'desc' },
     });
 
     const isSystemSyncError = lastSystemSync?.status === 'error';

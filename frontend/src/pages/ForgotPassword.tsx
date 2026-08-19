@@ -20,29 +20,33 @@ export default function ForgotPassword() {
     <div className={styles.container}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <h1>Recuperar Senha</h1>
+          <h2>Recuperar Senha</h2>
           <p>Informe seu e-mail para receber as instruções</p>
         </div>
         
-        {message && <div style={{ color: 'var(--color-success)', marginBottom: '1rem', fontSize: '0.875rem' }}>{message}</div>}
-        
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <div className={styles.inputGroup}>
-            <label htmlFor="email">E-mail</label>
-            <input 
-              type="email" 
-              id="email" 
-              value={email} 
-              onChange={(e) => setEmail(e.target.value)} 
-              required 
-            />
-          </div>
+        <div className={styles.body}>
+          {message && <div style={{ color: 'var(--green)', marginBottom: '16px', fontSize: '13px' }}>{message}</div>}
           
-          <button type="submit" className={styles.submitBtn}>Enviar Link</button>
-        </form>
+          <form className={styles.form} onSubmit={handleSubmit}>
+            <div className={styles.field}>
+              <label htmlFor="email">E-mail</label>
+              <input 
+                type="email" 
+                id="email" 
+                value={email} 
+                onChange={(e) => setEmail(e.target.value)} 
+                required 
+              />
+            </div>
+            
+            <button type="submit" className={styles.btnMain}>Enviar Link</button>
+          </form>
 
-        <div className={styles.footer}>
-          <a href="/login">Voltar para o login</a>
+          <div className={styles.orSep}></div>
+
+          <div className={styles.rowLink} style={{ justifyContent: 'center' }}>
+            <a href="/login">Voltar para o login</a>
+          </div>
         </div>
       </div>
     </div>

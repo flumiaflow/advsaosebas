@@ -1,41 +1,67 @@
-:root {
-  --color-bg-base: #0d1117;
-  --color-bg-surface: #161b22;
-  --color-bg-surface-hover: #21262d;
-  --color-text-primary: #e6edf3;
-  --color-text-secondary: #8b949e;
-  --color-border: #30363d;
+:root{
+  --bg:       #0d1117;
+  --surface:  #161b22;
+  --card:     #1c2130;
+  --card-2:   #21283a;
+  --line:     #30363d;
+  --line-subtle: #21282f;
+  --blue:     #2563eb;
+  --blue-dim: rgba(37,99,235,0.12);
+  --blue-muted:rgba(37,99,235,0.06);
+  --gold:     #c18a1e;
+  --gold-dim: rgba(193,138,30,0.12);
+  --red:      #cf222e;
+  --red-dim:  rgba(207,34,46,0.1);
+  --green:    #1a7f37;
+  --green-dim:rgba(26,127,55,0.1);
+  --orange:   #bc4c00;
+  --orange-dim:rgba(188,76,0,0.1);
+  --purple:   #6639ba;
+  --purple-dim:rgba(102,57,186,0.1);
+  --slate:    #4d637b;
+  --slate-dim:rgba(77,99,123,0.15);
+  --t1: #e6edf3;
+  --t2: #8b949e;
+  --t3: #484f58;
+  --t4: #30363d;
+  --fw: 260px;
+  --r:  6px;
   
-  --color-primary: #2f81f7;
-  --color-primary-hover: #1f6feb;
-  
-  --color-success: #238636;
-  --color-danger: #da3633;
-  --color-warning: #d29922;
-
+  --color-bg-base: var(--bg);
+  --color-bg-surface: var(--surface);
+  --color-bg-surface-hover: var(--card);
+  --color-text-primary: var(--t1);
+  --color-text-secondary: var(--t2);
+  --color-border: var(--line);
+  --color-primary: var(--blue);
+  --color-primary-hover: #1d4ed8;
+  --color-success: var(--green);
+  --color-danger: var(--red);
+  --color-warning: var(--gold);
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+*{
+  box-sizing:border-box;
+  margin:0;
+  padding:0;
 }
 
-body {
-  font-family: var(--font-sans);
-  background-color: var(--color-bg-base);
-  color: var(--color-text-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+html,body{
+  height:100%;
+  font-family:var(--font-sans);
+  background:var(--bg);
+  color:var(--t1);
+  font-size:13px;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--blue);
   text-decoration: none;
 }
-
 a:hover {
   text-decoration: underline;
 }
@@ -43,4 +69,8 @@ a:hover {
 button {
   cursor: pointer;
   font-family: var(--font-sans);
+}
+
+svg {
+  flex-shrink: 0;
 }

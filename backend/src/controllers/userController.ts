@@ -17,12 +17,15 @@ export async function getUsers(req: Request, res: Response) {
         email: true,
         role: true,
         isActive: true,
-        lastLogin: true
+        lastLogin: true,
+        userClientAccesses: {
+          select: { clientId: true }
+        }
       },
       orderBy: { name: 'asc' }
     });
 
-    return res.status(200).json(users);
+    return res.status(200).json({ users });
   } catch (error) {
     console.error('Error fetching users:', error);
     return res.status(500).json({ error: 'Erro ao buscar usuários' });
@@ -65,7 +68,7 @@ export async function createUser(req: Request, res: Response) {
 
     await logAuditAction({
       tenantId,
-      userId: req.user.userId,
+      userId: req.user!.userId,
       action: 'USER_CREATED',
       entityType: 'User',
       entityId: newUser.id,
@@ -88,7 +91,7 @@ export async function createUser(req: Request, res: Response) {
 export async function updateUser(req: Request, res: Response) {
   try {
     const tenantId = req.user?.tenantId;
-    const { id } = req.params;
+    const id = req.params.id as string;
     if (!tenantId) return res.status(400).json({ error: 'Tenant required' });
 
     if (req.user?.role !== 'supervisor') {
@@ -96,7 +99,7 @@ export async function updateUser(req: Request, res: Response) {
     }
 
     // Não pode editar a si mesmo
-    if (req.user.userId === id) {
+    if (req.user!.userId === id) {
       return res.status(403).json({ error: 'Você não pode alterar seu próprio perfil por aqui. Use a tela Meu Perfil.' });
     }
 
@@ -125,7 +128,7 @@ export async function updateUser(req: Request, res: Response) {
 
     await logAuditAction({
       tenantId,
-      userId: req.user.userId,
+      userId: req.user!.userId,
       action: isActive === false && userToEdit.isActive ? 'USER_DEACTIVATED' : 'USER_UPDATED',
       entityType: 'User',
       entityId: id,
@@ -142,5 +145,68 @@ export async function updateUser(req: Request, res: Response) {
   } catch (error) {
     console.error('Error updating user:', error);
     return res.status(500).json({ error: 'Erro ao atualizar usuário' });
+  }
+}
+
+export async function updateUserClients(req: Request, res: Response) {
+  try {
+    const tenantId = req.user?.tenantId;
+    const userId = req.params.id as string;
+    if (!tenantId) return res.status(400).json({ error: 'Tenant required' });
+
+    if (req.user?.role !== 'supervisor') {
+      return res.status(403).json({ error: 'Apenas supervisores podem editar os clientes do usuário' });
+    }
+
+    const { clientIds } = req.body;
+    if (!Array.isArray(clientIds)) {
+      return res.status(400).json({ error: 'clientIds deve ser um array' });
+    }
+
+    const userToEdit = await prisma.user.findUnique({ where: { id: userId } });
+    if (!userToEdit || userToEdit.tenantId !== tenantId) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    // Apenas vincula se os clientes de fato existirem para este tenant
+    const validClients = await prisma.client.findMany({
+      where: {
+        id: { in: clientIds },
+        tenantId
+      },
+      select: { id: true }
+    });
+
+    const validClientIds = validClients.map(c => c.id);
+
+    // Usa transação para limpar e recriar os acessos
+    await prisma.$transaction(async (tx) => {
+      await tx.userClientAccess.deleteMany({
+        where: { userId }
+      });
+
+      if (validClientIds.length > 0) {
+        await tx.userClientAccess.createMany({
+          data: validClientIds.map(clientId => ({
+            userId,
+            clientId
+          }))
+        });
+      }
+    });
+
+    await logAuditAction({
+      tenantId,
+      userId: req.user!.userId,
+      action: 'USER_ACCESS_UPDATED',
+      entityType: 'User',
+      entityId: userId,
+      metadata: { clientIds: validClientIds }
+    });
+
+    return res.status(200).json({ message: 'Permissões atualizadas com sucesso', clientIds: validClientIds });
+  } catch (error) {
+    console.error('Error updating user clients:', error);
+    return res.status(500).json({ error: 'Erro ao atualizar permissões do usuário' });
   }
 }

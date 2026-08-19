@@ -1,0 +1,762 @@
+/* Estilos fiéis ao protótipo juriswatch_prototipo.html para a tela de Processos */
+
+.processPage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg);
+  color: var(--t1);
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  height: 52px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+
+.topbar h1 {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+  color: var(--t1);
+}
+
+.bc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+
+.bc a {
+  color: var(--blue);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.bc a:hover {
+  text-decoration: underline;
+}
+
+.bc .sep {
+  color: var(--t3);
+}
+
+.bc .cur {
+  color: var(--t1);
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tba {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btnS {
+  padding: 6px 14px;
+  border-radius: var(--r);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btnS.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--t2);
+}
+
+.btnS.ghost:hover {
+  background: var(--card);
+  border-color: var(--t3);
+  color: var(--t1);
+}
+
+.btnS.primary {
+  background: var(--blue);
+  color: #fff;
+}
+
+.btnS.primary:hover {
+  background: #1d4ed8;
+}
+
+.pageContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Filtros da Lista */
+.fbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.fsearch {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 7px 12px;
+  transition: border-color 0.15s;
+}
+
+.fsearch:focus-within {
+  border-color: var(--blue);
+}
+
+.fsearch input {
+  background: transparent;
+  border: none;
+  color: var(--t1);
+  font-family: inherit;
+  font-size: 12.5px;
+  width: 100%;
+  outline: none;
+}
+
+.fsel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 7px 10px;
+  color: var(--t2);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+/* Painéis e Tabelas */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tbl th {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.tbl td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-subtle);
+  font-size: 12.5px;
+  color: var(--t1);
+}
+
+.tbl tbody tr {
+  transition: background 0.12s;
+  cursor: pointer;
+}
+
+.tbl tbody tr:hover {
+  background: var(--card);
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+/* Header do Processo (.ph) */
+.ph {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.phTop {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.pnum {
+  font-size: 17px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--t1);
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
+}
+
+.ptitle {
+  font-size: 13px;
+  color: var(--t2);
+  margin-bottom: 10px;
+}
+
+.phTags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tBlue { background: var(--blue-dim); color: #93b4fb; }
+.tGold { background: var(--gold-dim); color: #e3b341; }
+.tRed { background: var(--red-dim); color: #f85149; }
+.tGreen { background: var(--green-dim); color: #3fb950; }
+.tOrange { background: var(--orange-dim); color: #db6d28; }
+.tPurple { background: var(--purple-dim); color: #a371f7; }
+.tSlate { background: var(--slate-dim); color: #8b949e; }
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.phBody {
+  padding: 18px 24px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px 20px;
+}
+
+.phMetaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pml {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.pmv {
+  font-size: 12.5px;
+  color: var(--t1);
+  font-weight: 500;
+}
+
+.pmv.money {
+  color: #e3b341;
+  font-weight: 600;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-top: 4px;
+}
+
+.tabBtn {
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  color: var(--t2);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s;
+}
+
+.tabBtn:hover {
+  color: var(--t1);
+}
+
+.tabBtn.on {
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.tabBtn.on::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--blue);
+  border-radius: 2px 2px 0 0;
+}
+
+.tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Partes Envolvidas */
+.poloSection {
+  margin-bottom: 12px;
+}
+
+.poloLabel {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.poloLabel::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.partyCard {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.partyTop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.partyPoloBar {
+  width: 3px;
+  height: 32px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.partyName {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--t1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.partyDoc {
+  font-size: 11px;
+  color: var(--t3);
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 2px;
+}
+
+.partyBottom {
+  padding: 10px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.partyLawyers {
+  flex: 1;
+}
+
+.advLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 6px;
+}
+
+.advRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.advName {
+  font-size: 12px;
+  color: var(--t2);
+}
+
+.advOab {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--blue);
+  margin-left: auto;
+}
+
+.lgpdNote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(193, 138, 30, 0.08);
+  border: 1px solid rgba(193, 138, 30, 0.2);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-top: 8px;
+}
+
+.lgpdNote p {
+  font-size: 11px;
+  color: #d29922;
+  line-height: 1.5;
+}
+
+/* Linha do Tempo */
+.tlHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--t3);
+  padding: 4px 0 10px 0;
+}
+
+.tlSort {
+  color: var(--blue);
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.tlWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.tlItem {
+  display: flex;
+  gap: 0;
+  position: relative;
+}
+
+.tlItem:last-child .tlConnector {
+  display: none;
+}
+
+.tlLeft {
+  width: 72px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 14px 14px 0 0;
+}
+
+.tlDateShort {
+  font-size: 10.5px;
+  color: var(--t3);
+  font-family: 'JetBrains Mono', monospace;
+  text-align: right;
+  line-height: 1.4;
+}
+
+.tlCenter {
+  width: 20px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.tlDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+  margin-top: 14px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.tlConnector {
+  width: 1px;
+  flex: 1;
+  background: var(--line);
+  min-height: 24px;
+}
+
+.tlRight {
+  flex: 1;
+  padding: 8px 0 20px 12px;
+}
+
+.tlCard {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.tlCard:hover {
+  border-color: var(--t3);
+}
+
+.tlCard.newest {
+  border-color: rgba(37, 99, 235, 0.4);
+}
+
+.tlCardTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tlCardTypeBar {
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.tlCardTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--t1);
+  flex: 1;
+}
+
+.tlCardTime {
+  font-size: 10.5px;
+  color: var(--t3);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+.tlCardBody {
+  padding: 9px 14px;
+}
+
+.tlCardDesc {
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.55;
+}
+
+.newestBadge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: var(--blue);
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+/* Auditoria */
+.audGroup {
+  margin-bottom: 16px;
+}
+
+.audGroupTitle {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audGroupTitle::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.audRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line-subtle);
+  background: var(--card);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+.audRow:first-of-type {
+  border-top: 1px solid var(--line);
+  border-radius: var(--r) var(--r) 0 0;
+}
+
+.audRow:last-of-type {
+  border-bottom: 1px solid var(--line);
+  border-radius: 0 0 var(--r) var(--r);
+}
+
+.audRow:only-child {
+  border-radius: var(--r);
+  border: 1px solid var(--line);
+}
+
+.audIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.audBody {
+  flex: 1;
+}
+
+.audAction {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--t1);
+}
+
+.audDetail {
+  font-size: 11px;
+  color: var(--t3);
+  margin-top: 1px;
+}
+
+.audTime {
+  font-size: 10.5px;
+  color: var(--t3);
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+/* Paginação da Tabela */
+.paginationBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t2);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.pagInfo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pagInfo strong {
+  color: var(--t1);
+}
+
+.pagSizeSelect {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--t1);
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+.pagControls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pagBtn {
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--t2);
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pagBtn:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--t3);
+  color: var(--t1);
+}
+
+.pagBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pagBtn.active {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+  font-weight: 700;
+}

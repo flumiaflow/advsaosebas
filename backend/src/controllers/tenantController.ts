@@ -17,7 +17,7 @@ export async function getTenants(req: Request, res: Response) {
 // Obter detalhes de um escritório
 export async function getTenantById(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const tenant = await prisma.tenant.findUnique({
       where: { id },
       include: {
@@ -101,7 +101,7 @@ export async function createTenant(req: Request, res: Response) {
 // Atualizar um escritório
 export async function updateTenant(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const { name, plan, status, timezone } = req.body;
     
     const updateData: any = {};

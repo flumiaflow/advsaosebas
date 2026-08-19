@@ -5,8 +5,8 @@ export async function createEstablishment(req: Request, res: Response) {
   try {
     if (req.user?.role !== 'supervisor') return res.status(403).json({ error: 'Restrito a supervisores' });
 
-    const tenantId = req.user.tenantId!;
-    const { clientId } = req.params;
+    const tenantId = req.user!.tenantId!;
+    const clientId = req.params.clientId as string;
     const { cnpj, razaoSocial, fantasyName, type, state, city } = req.body;
 
     if (!cnpj || !razaoSocial) {
@@ -56,7 +56,7 @@ export async function deactivateEstablishment(req: Request, res: Response) {
   try {
     if (req.user?.role !== 'supervisor') return res.status(403).json({ error: 'Restrito a supervisores' });
 
-    const { id } = req.params;
+    const id = req.params.id as string;
     
     // Soft delete / deactivate
     const est = await prisma.establishment.update({

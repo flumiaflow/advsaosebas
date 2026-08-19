@@ -1,3 +1,9 @@
+// BigInt JSON serialization support
+(BigInt.prototype as any).toJSON = function () {
+  const int = Number(this);
+  return int ?? this.toString();
+};
+
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -21,6 +27,8 @@ import exportRoutes from './routes/exportRoutes';
 import importRoutes from './routes/importRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
+import settingsRoutes from './routes/settingsRoutes';
+import partyRoutes from './routes/partyRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -39,11 +47,13 @@ app.use(passport.initialize());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
+app.use('/api/backoffice/tenants', tenantRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/establishments', establishmentRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/sync/config', syncConfigRoutes);
 app.use('/api/processes', processRoutes);
+app.use('/api/parties', partyRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/users', userRoutes);
@@ -51,6 +61,7 @@ app.use('/api/export', exportRoutes);
 app.use('/api/import', importRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Healthcheck endpoint
 app.get('/health', (req, res) => {

@@ -1,107 +1,184 @@
 .layout {
+  flex: 1;
   display: flex;
   height: 100vh;
-  overflow: hidden;
 }
 
 .sidebar {
-  width: 250px;
-  background-color: var(--color-bg-surface);
-  border-right: 1px solid var(--color-border);
+  width: var(--fw);
+  height: 100%;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
 }
 
 .brand {
-  padding: 1.5rem;
+  padding: 16px 14px;
+  border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  border-bottom: 1px solid var(--color-border);
+  gap: 8px;
+}
+
+.brandIcon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand h2 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t1);
+  margin: 0;
+}
+
+.brand span.colorBlue {
+  color: var(--blue);
 }
 
 .badge {
-  background-color: var(--color-danger);
+  background: var(--blue);
   color: #fff;
-  font-size: 0.7rem;
-  padding: 0.1rem 0.4rem;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
   border-radius: 4px;
-  font-weight: 600;
-  text-transform: uppercase;
+  min-width: 18px;
+  text-align: center;
+  margin-left: auto;
 }
 
 .nav {
-  padding: 1rem 0;
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  padding: 8px 8px;
+  overflow-y: auto;
+}
+
+.navGroupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--t3);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 12px 8px 4px;
 }
 
 .nav a {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1.5rem;
-  color: var(--color-text-secondary);
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--r);
+  cursor: pointer;
+  color: var(--t2);
+  font-size: 12.5px;
   font-weight: 500;
-  transition: all 0.2s;
-}
-
-.nav a:hover {
-  background-color: var(--color-bg-surface-hover);
-  color: var(--color-text-primary);
+  transition: all 0.12s;
+  position: relative;
   text-decoration: none;
 }
 
+.nav a:hover {
+  background: var(--card);
+  color: var(--t1);
+}
+
 .nav a.active {
-  background-color: var(--color-bg-surface-hover);
-  color: var(--color-primary);
-  border-right: 3px solid var(--color-primary);
+  background: var(--blue-dim);
+  color: #93b4fb;
+}
+
+.nav a.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  background: var(--blue);
+  border-radius: 0 2px 2px 0;
 }
 
 .userSection {
-  padding: 1rem;
-  border-top: 1px solid var(--color-border);
+  padding: 12px 8px;
+  border-top: 1px solid var(--line);
+}
+
+.userRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.userRow:hover {
+  background: var(--card);
+}
+
+.uAv {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
 }
 
 .userInfo {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  margin-bottom: 1rem;
 }
 
-.userInfo strong {
-  font-size: 0.875rem;
+.uName {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t1);
 }
 
-.userInfo span {
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
+.uRole {
+  font-size: 10px;
+  color: var(--t3);
 }
 
 .logoutBtn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
   background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
-  padding: 0.5rem;
-  border-radius: 6px;
-  justify-content: center;
-  transition: all 0.2s;
+  color: var(--t3);
+  border: none;
+  cursor: pointer;
+  padding: 4px;
 }
 
 .logoutBtn:hover {
-  background: var(--color-bg-surface-hover);
-  color: var(--color-text-primary);
+  color: var(--t1);
 }
 
 .main {
   flex: 1;
-  overflow-y: auto;
-  background-color: var(--color-bg-base);
-  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }

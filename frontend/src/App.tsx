@@ -24,6 +24,8 @@ import React from 'react';
 
 const queryClient = new QueryClient();
 
+import Unauthorized from './pages/Unauthorized';
+
 // A simple protected route wrapper
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const { user, isLoading } = useAuth();
@@ -31,7 +33,13 @@ const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode,
   if (isLoading) return <div>Carregando...</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (user.mustChangePassword) return <Navigate to="/change-password" replace />;
-  if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/unauthorized" replace />;
+  
+  if (allowedRoles) {
+    const isSuperAdmin = user.role === 'super_admin' || user.isImpersonating || (user as any).originalRole === 'super_admin';
+    const isAllowed = isSuperAdmin || allowedRoles.includes(user.role);
+
+    if (!isAllowed) return <Navigate to="/unauthorized" replace />;
+  }
   
   return children;
 };
@@ -43,6 +51,7 @@ const AppRoutes = () => {
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/unauthorized" element={<Unauthorized />} />
       
       {/* Protected routes */}
       <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
@@ -53,14 +62,14 @@ const AppRoutes = () => {
         <Route path="tenants" element={<Tenants />} />
       </Route>
 
-      {/* Workspace (Supervisor and User) */}
-      <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['supervisor', 'user']}><WorkspaceLayout /></ProtectedRoute>}>
+      {/* Workspace (Supervisor, User, and Super Admin) */}
+      <Route path="/dashboard" element={<ProtectedRoute allowedRoles={['supervisor', 'user', 'super_admin']}><WorkspaceLayout /></ProtectedRoute>}>
         <Route index element={<WorkspaceDashboard />} />
         <Route path="clients" element={<Clients />} />
         <Route path="processes" element={<Processes />} />
-        <Route path="users" element={<ProtectedRoute allowedRoles={['supervisor']}><Users /></ProtectedRoute>} />
-        <Route path="audit" element={<ProtectedRoute allowedRoles={['supervisor']}><Audit /></ProtectedRoute>} />
-        <Route path="settings" element={<ProtectedRoute allowedRoles={['supervisor']}><Settings /></ProtectedRoute>} />
+        <Route path="users" element={<ProtectedRoute allowedRoles={['supervisor', 'super_admin']}><Users /></ProtectedRoute>} />
+        <Route path="audit" element={<ProtectedRoute allowedRoles={['supervisor', 'super_admin']}><Audit /></ProtectedRoute>} />
+        <Route path="settings" element={<ProtectedRoute allowedRoles={['supervisor', 'super_admin']}><Settings /></ProtectedRoute>} />
       </Route>
     </Routes>
   );

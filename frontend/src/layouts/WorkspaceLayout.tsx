@@ -6,17 +6,21 @@ import NotificationBadge from '../components/NotificationBadge';
 import styles from './Layout.module.css';
 
 export default function WorkspaceLayout() {
-  const { user, logout, initAuth } = useAuth();
+  const { user, logout, login, initAuth } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isSupervisor = user?.role === 'supervisor';
-  const isImpersonating = (user as any)?.isImpersonating;
+  const isSupervisor = user?.role === 'supervisor' || user?.role === 'super_admin' || (user as any)?.isImpersonating;
+  const isImpersonating = (user as any)?.isImpersonating || (user?.role === 'super_admin' && (user as any)?.tenantId);
 
   const handleExitImpersonate = async () => {
     try {
-      await api.post('/auth/impersonate/exit');
-      await initAuth();
+      const { data } = await api.post('/auth/impersonate/exit');
+      if (data.accessToken && data.user) {
+        login(data.accessToken, data.user);
+      } else {
+        await initAuth();
+      }
       navigate('/backoffice');
     } catch (e) {
       console.error('Erro ao sair da sessão fantasma', e);
@@ -27,10 +31,11 @@ export default function WorkspaceLayout() {
     <div className={styles.layout}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <h2>JurisWatch</h2>
-          <span className={styles.badge} style={{ backgroundColor: 'var(--color-primary)' }}>
-            {user?.role}
-          </span>
+          <div className={styles.brandIcon}>
+            <svg width="14" height="14" fill="none" stroke="#fff" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </div>
+          <h2>Juris<span className={styles.colorBlue}>Watch</span></h2>
+          <span className={styles.badge}>{user?.role === 'supervisor' ? 'SUP' : 'USR'}</span>
         </div>
         
         <nav className={styles.nav}>
@@ -46,30 +51,31 @@ export default function WorkspaceLayout() {
           
           {isSupervisor && (
             <>
-              <div style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase', marginTop: '1rem' }}>
-                Administração
-              </div>
+              <div className={styles.navGroupLabel}>Administração</div>
               <Link to="/dashboard/users" className={location.pathname.includes('/users') ? styles.active : ''}>
-                <UsersRound size={18} /> Equipe
+                <UsersRound size={16} /> Equipe
               </Link>
               <Link to="/dashboard/audit" className={location.pathname.includes('/audit') ? styles.active : ''}>
-                <ShieldAlert size={18} /> Auditoria
+                <ShieldAlert size={16} /> Auditoria
               </Link>
               <Link to="/dashboard/settings" className={location.pathname.includes('/settings') ? styles.active : ''}>
-                <Settings size={18} /> Configurações
+                <Settings size={16} /> Configurações
               </Link>
             </>
           )}
         </nav>
 
         <div className={styles.userSection}>
-          <div className={styles.userInfo}>
-            <strong>{user?.name}</strong>
-            <span>{user?.email}</span>
+          <div className={styles.userRow}>
+            <div className={styles.uAv}>{user?.name?.charAt(0).toUpperCase()}</div>
+            <div className={styles.userInfo}>
+              <div className={styles.uName}>{user?.name}</div>
+              <div className={styles.uRole}>{user?.role}</div>
+            </div>
+            <button className={styles.logoutBtn} onClick={logout} title="Sair">
+              <LogOut size={14} />
+            </button>
           </div>
-          <button className={styles.logoutBtn} onClick={logout}>
-            <LogOut size={16} /> Sair
-          </button>
         </div>
       </aside>
 
@@ -103,7 +109,7 @@ export default function WorkspaceLayout() {
           <NotificationBadge />
         </header>
         
-        <main className={styles.main}>
+        <main className={styles.page}>
           <Outlet />
         </main>
       </div>

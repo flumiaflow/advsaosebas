@@ -22,6 +22,14 @@ router.post('/impersonate/:tenantId', authMiddleware, impersonate);
 // Rota para iniciar o fluxo OAuth
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'], session: false }));
 
+router.get('/google/link', authMiddleware, passport.authenticate('google', { scope: ['profile', 'email'], session: false, state: 'link' }));
+router.delete('/google/link', authMiddleware, async (req, res) => {
+  try {
+    const { unlinkGoogle } = await import('../controllers/authController');
+    return unlinkGoogle(req, res);
+  } catch(e) { res.status(500).json({ error: 'Erro interno' }); }
+});
+
 // Callback do Google
 router.get('/google/callback', 
   passport.authenticate('google', { session: false, failureRedirect: '/login?error=unauthorized' }),
@@ -29,6 +37,12 @@ router.get('/google/callback',
     try {
       const user = req.user as any;
       if (!user) return res.redirect('/login?error=unauthorized');
+
+      // Link conta se o state for 'link'
+      if (req.query.state === 'link') {
+        const { linkGoogle } = await import('../controllers/authController');
+        return linkGoogle(req, res, user);
+      }
 
       const { accessToken, refreshToken } = generateTokens(user.id, user.tenantId, user.role);
 

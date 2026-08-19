@@ -23,7 +23,7 @@ export async function getUnreadNotifications(req: Request, res: Response) {
 
 export async function markAsRead(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const id = req.params.id as string;
     const userId = req.user?.userId!;
 
     await prisma.notification.updateMany({

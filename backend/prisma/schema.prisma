@@ -13,14 +13,14 @@ model Tenant {
   name                 String                 @db.VarChar(255)
   plan                 String                 @default("trial") @db.VarChar(20)
   status               String                 @default("active") @db.VarChar(20)
-  trialEndsAt          DateTime?
-  cancelledAt          DateTime?
+  trialEndsAt          DateTime?              @map("trial_ends_at")
+  cancelledAt          DateTime?              @map("cancelled_at")
   timezone             String                 @default("America/Sao_Paulo") @db.VarChar(50)
-  apiKeyJudit          String?                @db.Text
-  apiKeyJuditIv        String?                @db.Text
-  apiKeyEscavador      String?                @db.Text
-  apiKeyEscavadorIv    String?                @db.Text
-  createdAt            DateTime               @default(now())
+  apiKeyJudit          String?                @map("api_key_judit") @db.Text
+  apiKeyJuditIv        String?                @map("api_key_judit_iv") @db.Text
+  apiKeyEscavador      String?                @map("api_key_escavador") @db.Text
+  apiKeyEscavadorIv    String?                @map("api_key_escavador_iv") @db.Text
+  createdAt            DateTime               @default(now()) @map("created_at")
 
   users                User[]
   clients              Client[]
@@ -28,6 +28,7 @@ model Tenant {
   processes            Process[]
   movements            Movement[]
   processParties       ProcessParty[]
+  parties              Party[]
   notifications        Notification[]
   syncJobs             SyncJob[]
   auditLogs            AuditLog[]
@@ -38,17 +39,17 @@ model Tenant {
 
 model User {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String?                @db.Uuid
+  tenantId             String?                @map("tenant_id") @db.Uuid
   tenant               Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name                 String                 @db.VarChar(255)
   email                String                 @unique @db.VarChar(255)
-  passwordHash         String?                @db.Text
-  googleId             String?                @unique @db.VarChar(255)
+  passwordHash         String?                @map("password_hash") @db.Text
+  googleId             String?                @unique @map("google_id") @db.VarChar(255)
   role                 String                 @default("user") @db.VarChar(20)
-  isActive             Boolean                @default(true)
-  mustChangePassword   Boolean                @default(false)
-  lastLogin            DateTime?
-  createdAt            DateTime               @default(now())
+  isActive             Boolean                @default(true) @map("is_active")
+  mustChangePassword   Boolean                @default(false) @map("must_change_password")
+  lastLogin            DateTime?              @map("last_login")
+  createdAt            DateTime               @default(now()) @map("created_at")
 
   passwordResetTokens  PasswordResetToken[]
   userClientAccesses   UserClientAccess[]
@@ -61,28 +62,28 @@ model User {
 
 model PasswordResetToken {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId               String                 @db.Uuid
+  userId               String                 @map("user_id") @db.Uuid
   user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash            String                 @db.Text
-  expiresAt            DateTime
-  usedAt               DateTime?
-  createdAt            DateTime               @default(now())
+  tokenHash            String                 @map("token_hash") @db.Text
+  expiresAt            DateTime               @map("expires_at")
+  usedAt               DateTime?              @map("used_at")
+  createdAt            DateTime               @default(now()) @map("created_at")
 
-  @@index([userId]) // Partial index for usedAt IS NULL will be created via raw SQL
+  @@index([userId])
   @@map("password_reset_tokens")
 }
 
 model Client {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String                 @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name                 String                 @db.VarChar(255)
-  fantasyName          String?                @db.VarChar(255)
+  fantasyName          String?                @map("fantasy_name") @db.VarChar(255)
   notes                String?                @db.Text
-  isActive             Boolean                @default(true)
-  createdById          String?                @db.Uuid
+  isActive             Boolean                @default(true) @map("is_active")
+  createdById          String?                @map("created_by_id") @db.Uuid
   createdBy            User?                  @relation("ClientCreator", fields: [createdById], references: [id])
-  createdAt            DateTime               @default(now())
+  createdAt            DateTime               @default(now()) @map("created_at")
 
   establishments       Establishment[]
   processParties       ProcessParty[]
@@ -95,9 +96,9 @@ model Client {
 }
 
 model UserClientAccess {
-  userId               String                 @db.Uuid
+  userId               String                 @map("user_id") @db.Uuid
   user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientId             String                 @db.Uuid
+  clientId             String                 @map("client_id") @db.Uuid
   client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@id([userId, clientId])
@@ -107,18 +108,18 @@ model UserClientAccess {
 
 model Establishment {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  clientId             String                 @db.Uuid
+  clientId             String                 @map("client_id") @db.Uuid
   client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tenantId             String                 @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   cnpj                 String                 @db.Char(18)
-  razaoSocial          String                 @db.VarChar(255)
-  fantasyName          String?                @db.VarChar(255)
+  razaoSocial          String                 @map("razao_social") @db.VarChar(255)
+  fantasyName          String?                @map("fantasy_name") @db.VarChar(255)
   type                 String                 @default("matriz") @db.VarChar(10)
   state                String?                @db.Char(2)
   city                 String?                @db.VarChar(100)
-  isActive             Boolean                @default(true)
-  createdAt            DateTime               @default(now())
+  isActive             Boolean                @default(true) @map("is_active")
+  createdAt            DateTime               @default(now()) @map("created_at")
 
   processParties       ProcessParty[]
 
@@ -128,32 +129,32 @@ model Establishment {
 
 model Process {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String                 @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  processNumber        String                 @db.VarChar(25)
+  processNumber        String                 @map("process_number") @db.VarChar(25)
   
   tribunal             String?                @db.VarChar(100)
-  tribunalCode         String[]               @db.VarChar(10)
-  justiceType          String?                @db.VarChar(20)
-  varaOrgao            String?                @db.VarChar(200)
-  systemOrigin         String?                @db.VarChar(20)
+  tribunalCode         String[]               @map("tribunal_code") @db.VarChar(10)
+  justiceType          String?                @map("justice_type") @db.VarChar(255)
+  varaOrgao            String?                @map("vara_orgao") @db.VarChar(200)
+  systemOrigin         String?                @map("system_origin") @db.VarChar(100)
   
-  className            String?                @db.VarChar(200)
-  subjectMain          String?                @db.VarChar(200)
-  subjectsExtra        String[]
+  className            String?                @map("class_name") @db.VarChar(200)
+  subjectMain          String?                @map("subject_main") @db.VarChar(200)
+  subjectsExtra        String[]               @map("subjects_extra")
   
   value                BigInt?
   
-  distributionDate     DateTime?              @db.Date
-  firstSeenAt          DateTime               @default(now())
-  lastSyncAt           DateTime?
+  distributionDate     DateTime?              @map("distribution_date") @db.Date
+  firstSeenAt          DateTime               @default(now()) @map("first_seen_at")
+  lastSyncAt           DateTime?              @map("last_sync_at")
   
   status               String                 @default("ativo") @db.VarChar(30)
   phase                String?                @db.VarChar(200)
-  involvedParties      Json?
+  involvedParties      Json?                  @map("involved_parties")
   
-  sourceAdapter        String                 @db.VarChar(20)
-  rawData              Json?
+  sourceAdapter        String                 @map("source_adapter") @db.VarChar(100)
+  rawData              Json?                  @map("raw_data")
   
   processParties       ProcessParty[]
   movements            Movement[]
@@ -166,47 +167,81 @@ model Process {
 
 model ProcessParty {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  processId            String                 @db.Uuid
+  processId            String                 @map("process_id") @db.Uuid
   process              Process                @relation(fields: [processId], references: [id], onDelete: Cascade)
-  clientId             String                 @db.Uuid
-  client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  establishmentId      String                 @db.Uuid
-  establishment        Establishment          @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
-  tenantId             String                 @db.Uuid
+  clientId             String?                @map("client_id") @db.Uuid
+  client               Client?                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  establishmentId      String?                @map("establishment_id") @db.Uuid
+  establishment        Establishment?         @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  partyId              String?                @map("party_id") @db.Uuid
+  party                Party?                 @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  tenantId             String                 @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   
-  polo                 String?                @db.VarChar(10)
-  isPrimary            Boolean                @default(false)
-  isActive             Boolean                @default(true)
-  linkedAt             DateTime               @default(now())
+  polo                 String?                @db.VarChar(20)
+  side                 String?                @db.VarChar(10)
+  lawyerOab            String?                @map("lawyer_oab") @db.VarChar(20)
+  isPrimary            Boolean                @default(false) @map("is_primary")
+  isActive             Boolean                @default(true) @map("is_active")
+  linkedAt             DateTime               @default(now()) @map("linked_at")
 
-  @@unique([processId, establishmentId])
   @@index([processId])
+  @@index([partyId])
+  @@index([tenantId])
   @@map("process_parties")
+}
+
+model Party {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  name                 String                 @db.VarChar(255)
+  normalizedName       String                 @map("normalized_name") @db.VarChar(255)
+  
+  document             String?                @db.VarChar(30)
+  documentType         String?                @map("document_type") @db.VarChar(10) // cpf, cnpj, oab, outro
+  
+  type                 String                 @default("pessoa_fisica") @db.VarChar(20) // pessoa_fisica, pessoa_juridica, advogado, orgao_publico
+  oabNumber            String?                @map("oab_number") @db.VarChar(20)
+  oabState             String?                @map("oab_state") @db.VarChar(2)
+  
+  isMasked             Boolean                @default(false) @map("is_masked")
+  enrichmentSource     String?                @map("enrichment_source") @db.VarChar(30) // datajud, djen_cnj, manual
+  enrichedAt           DateTime?              @map("enriched_at")
+  
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @default(now()) @updatedAt @map("updated_at")
+
+  processParties       ProcessParty[]
+
+  @@unique([tenantId, document])
+  @@index([tenantId, normalizedName])
+  @@map("parties")
 }
 
 model Movement {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  processId            String                 @db.Uuid
+  processId            String                 @map("process_id") @db.Uuid
   process              Process                @relation(fields: [processId], references: [id], onDelete: Cascade)
-  tenantId             String                 @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   
-  sourceEventId        String                 @db.VarChar(100)
+  sourceEventId        String                 @map("source_event_id") @db.VarChar(255)
   
-  eventDate            DateTime               @db.Timestamptz
-  eventCode            String?                @db.VarChar(20)
-  eventName            String                 @db.VarChar(255)
-  eventTypeGroup       String                 @db.VarChar(30)
+  eventDate            DateTime               @map("event_date") @db.Timestamptz
+  eventCode            String?                @map("event_code") @db.VarChar(100)
+  eventName            String                 @map("event_name") @db.VarChar(255)
+  eventTypeGroup       String                 @map("event_type_group") @db.VarChar(255)
   description          String?                @db.Text
   complement           String?                @db.Text
   
-  publishedAt          DateTime?              @db.Timestamptz
-  syncedAt             DateTime               @default(now())
+  publishedAt          DateTime?              @map("published_at") @db.Timestamptz
+  syncedAt             DateTime               @default(now()) @map("synced_at")
   
-  importType           String                 @db.VarChar(20)
+  importType           String                 @map("import_type") @db.VarChar(20)
   source               String                 @db.VarChar(20)
-  rawData              Json?
+  rawData              Json?                  @map("raw_data")
 
   notifications        Notification[]
 
@@ -218,89 +253,87 @@ model Movement {
 
 model Notification {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String                 @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId               String                 @db.Uuid
+  userId               String                 @map("user_id") @db.Uuid
   user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clientId             String?                @db.Uuid
+  clientId             String?                @map("client_id") @db.Uuid
   client               Client?                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   
   type                 String                 @db.VarChar(50)
-  processId            String?                @db.Uuid
+  processId            String?                @map("process_id") @db.Uuid
   process              Process?               @relation(fields: [processId], references: [id], onDelete: Cascade)
-  movementId           String?                @db.Uuid
+  movementId           String?                @map("movement_id") @db.Uuid
   movement             Movement?              @relation(fields: [movementId], references: [id], onDelete: Cascade)
   
   title                String                 @db.VarChar(255)
   description          String?                @db.Text
-  isRead               Boolean                @default(false)
-  createdAt            DateTime               @default(now())
+  isRead               Boolean                @default(false) @map("is_read")
+  createdAt            DateTime               @default(now()) @map("created_at")
 
-  // Partial index for isRead = false will be created via raw SQL migration
   @@map("notifications")
 }
 
 model SyncJob {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String                 @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  clientId             String?                @db.Uuid
+  clientId             String?                @map("client_id") @db.Uuid
   client               Client?                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   
-  triggeredBy          String                 @db.VarChar(255)
+  triggeredBy          String                 @map("triggered_by") @db.VarChar(255)
   type                 String                 @db.VarChar(20)
-  startedAt            DateTime               @default(now())
-  finishedAt           DateTime?
+  startedAt            DateTime               @default(now()) @map("started_at")
+  finishedAt           DateTime?              @map("finished_at")
   status               String                 @default("running") @db.VarChar(20)
   
-  clientsProcessed     Int                    @default(0)
-  newProcessesFound    Int                    @default(0)
-  newMovementsFound    Int                    @default(0)
-  failedEstablishments Json                   @default("[]")
-  partialErrorCount    Int                    @default(0)
-  errorMessage         String?                @db.Text
+  clientsProcessed     Int                    @default(0) @map("clients_processed")
+  newProcessesFound    Int                    @default(0) @map("new_processes_found")
+  newMovementsFound    Int                    @default(0) @map("new_movements_found")
+  failedEstablishments Json                   @default("[]") @map("failed_establishments")
+  partialErrorCount    Int                    @default(0) @map("partial_error_count")
+  errorMessage         String?                @map("error_message") @db.Text
 
   @@index([tenantId, startedAt(sort: Desc)])
-  // Partial unique index for running status will be created via raw SQL
   @@map("sync_jobs")
 }
 
 model AuditLog {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId             String?                @db.Uuid
+  tenantId             String?                @map("tenant_id") @db.Uuid
   tenant               Tenant?                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userId               String?                @db.Uuid
-  userName             String?                @db.VarChar(255)
+  userId               String?                @map("user_id") @db.Uuid
+  userName             String?                @map("user_name") @db.VarChar(255)
   action               String                 @db.VarChar(50)
-  entityType           String?                @db.VarChar(50)
-  entityId             String?                @db.Uuid
+  entityType           String?                @map("entity_type") @db.VarChar(50)
+  entityId             String?                @map("entity_id") @db.Uuid
   metadata             Json?
-  ipAddress            String?                // Prisma doesn't support inet natively yet, String is used
-  createdAt            DateTime               @default(now())
+  ipAddress            String?                @map("ip_address")
+  createdAt            DateTime               @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("audit_logs")
 }
 
 model SyncConfig {
-  tenantId             String                 @id @db.Uuid
+  tenantId             String                 @id @map("tenant_id") @db.Uuid
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  daysOfWeek           Int[]                  @default([1, 2, 3, 4, 5])
+  daysOfWeek           Int[]                  @default([1, 2, 3, 4, 5]) @map("days_of_week")
   times                String[]               @default(["07:00"])
   timezone             String                 @default("America/Sao_Paulo") @db.VarChar(50)
-  onlyActiveClients    Boolean                @default(true)
-  tribunalTypes        String[]
-  isActive             Boolean                @default(true)
-  updatedAt            DateTime               @default(now())
+  onlyActiveClients    Boolean                @default(true) @map("only_active_clients")
+  tribunalTypes        String[]               @map("tribunal_types")
+  isActive             Boolean                @default(true) @map("is_active")
+  updatedAt            DateTime               @default(now()) @map("updated_at")
 
   @@map("sync_config")
 }
 
 model SyncThrottle {
-  clientId             String                 @id @db.Uuid
+  clientId             String                 @id @map("client_id") @db.Uuid
   client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  lastManualAt         DateTime
-  triggeredById        String?                @db.Uuid
+  lastManualAt         DateTime               @map("last_manual_at")
+  triggeredById        String?                @map("triggered_by_id") @db.Uuid
   triggeredBy          User?                  @relation(fields: [triggeredById], references: [id])
 
   @@map("sync_throttle")

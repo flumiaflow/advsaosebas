@@ -86,14 +86,14 @@ export async function confirmImport(req: Request, res: Response) {
       const jobId = 'mock-job-' + Date.now();
       
       handleImportJob({
-        data: { tenantId, clientId, processNumbers, triggeredBy: req.user.userId }
+        data: { tenantId, clientId, processNumbers, triggeredBy: req.user!.userId }
       }).catch(e => {
         console.error('[FALLBACK] Erro fatal no worker de importação:', e);
       });
 
       await logAuditAction({
         tenantId,
-        userId: req.user.userId,
+        userId: req.user!.userId,
         action: 'IMPORT_ENQUEUED',
         metadata: { count: processNumbers.length, clientId, jobId }
       });
@@ -109,12 +109,12 @@ export async function confirmImport(req: Request, res: Response) {
       tenantId,
       clientId,
       processNumbers,
-      triggeredBy: req.user.userId
+      triggeredBy: req.user!.userId
     });
 
     await logAuditAction({
       tenantId,
-      userId: req.user.userId,
+      userId: req.user!.userId,
       action: 'IMPORT_ENQUEUED',
       metadata: { count: processNumbers.length, clientId, jobId: job.id }
     });

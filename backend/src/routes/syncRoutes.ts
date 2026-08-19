@@ -7,5 +7,6 @@ const router = Router();
 
 router.use(authMiddleware);
 router.post('/client/:id', clientAccessMiddleware, triggerManualSync);
+router.post('/process/:id', triggerManualSync);
 
 export default router;

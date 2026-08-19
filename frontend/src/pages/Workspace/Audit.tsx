@@ -8,12 +8,23 @@ export default function Audit() {
     queryKey: ['workspace', 'audit'],
     queryFn: async () => {
       const { data } = await api.get('/audit');
-      return data.logs;
+      return Array.isArray(data) ? data : data.logs || [];
     }
   });
 
   const handleExport = async () => {
-    window.location.href = 'http://localhost:3000/api/export/audit-logs?format=csv';
+    try {
+      const response = await api.get('/audit/export', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `auditoria_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (e) {
+      alert('Erro ao exportar auditoria em CSV');
+    }
   };
 
   if (isLoading) return <div>Carregando...</div>;

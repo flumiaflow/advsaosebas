@@ -56,7 +56,7 @@ export async function updateSyncConfig(req: Request, res: Response) {
 
     await logAuditAction({
       tenantId,
-      userId: req.user.userId,
+      userId: req.user!.userId,
       action: 'SYNC_CONFIG_UPDATED',
       metadata: updated
     });

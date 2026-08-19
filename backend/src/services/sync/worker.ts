@@ -3,6 +3,8 @@ import { redisClient } from '../../config/redis'; // Assume this is generic redi
 import { PrismaClient } from '@prisma/client';
 import { DataJudAdapter } from './adapters/datajud';
 import { getIO } from '../../socket';
+import { findOrCreateParty, linkPartyToProcess } from '../parties/partyService';
+import { enrichProcessFromDjen } from './djenEnricher';
 
 const prisma = new PrismaClient();
 const QUEUE_NAME = 'SyncQueue';
@@ -67,15 +69,24 @@ export async function handleSyncJob(job: any) {
   let partialErrors = 0;
 
   try {
-    // 1. Busca todos os CNPJs ativos deste cliente
-    const establishments = await prisma.establishment.findMany({
-      where: { clientId, isActive: true }
+    // 1. Busca os dados do cliente e todos os CNPJs ativos
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+      include: { establishments: { where: { isActive: true } } }
     });
+
+    const establishments = client?.establishments || [];
+    const clientTerms = Array.from(new Set([
+      client?.name,
+      client?.fantasyName,
+      ...establishments.map(e => e.razaoSocial),
+      ...establishments.map(e => e.nomeFantasia)
+    ].filter(Boolean))) as string[];
 
     for (const est of establishments) {
       try {
-        // 2. Busca na DataJud
-        const processes = await adapter.fetchByCnpj(est.cnpj);
+        // 2. Busca automatizada multi-tribunais via DJEN + DataJud
+        const processes = await adapter.fetchByCnpjAndTerms(est.cnpj, clientTerms);
         
         for (const p of processes) {
           // 3. Upsert do Processo
@@ -90,6 +101,9 @@ export async function handleSyncJob(job: any) {
               status: p.status,
               justiceType: p.justiceType,
               tribunal: p.tribunal,
+              className: p.className,
+              subjectMain: p.subjectMain,
+              subjectsExtra: p.subjectsExtra || [],
               lastSyncAt: new Date(),
               value: p.value ? BigInt(p.value) : null
             },
@@ -99,6 +113,9 @@ export async function handleSyncJob(job: any) {
               status: p.status,
               justiceType: p.justiceType,
               tribunal: p.tribunal,
+              className: p.className,
+              subjectMain: p.subjectMain,
+              subjectsExtra: p.subjectsExtra || [],
               lastSyncAt: new Date(),
               sourceAdapter: 'datajud',
               value: p.value ? BigInt(p.value) : null
@@ -106,26 +123,54 @@ export async function handleSyncJob(job: any) {
           });
 
           // Se acabou de ser criado, não existia antes. 
-          // O Prisma não diz explicitamente se foi insert ou update de forma fácil, mas para métricas aproximamos
           if (processRecord.firstSeenAt?.getTime() === processRecord.lastSyncAt?.getTime()) {
             newProcessesCount++;
           }
 
-          // 4. Vincula a ProcessParty
-          await prisma.processParty.upsert({
-            where: {
-              processId_establishmentId: {
+          // 4. Cria e vincula a Parte do Estabelecimento do Cliente
+          const clientParty = await findOrCreateParty(tenantId, {
+            name: est.razaoSocial || client?.name || `Empresa CNPJ ${est.cnpj}`,
+            document: est.cnpj,
+            documentType: 'cnpj',
+            type: 'pessoa_juridica',
+            isMasked: false,
+            enrichmentSource: 'datajud'
+          });
+
+          await linkPartyToProcess({
+            processId: processRecord.id,
+            partyId: clientParty.id,
+            tenantId,
+            clientId,
+            establishmentId: est.id,
+            polo: 'reu',
+            side: 'passivo',
+            isPrimary: true
+          });
+
+          // Vincula as demais partes retornadas pelo DataJud
+          if (p.parties && Array.isArray(p.parties)) {
+            for (const rawParty of p.parties) {
+              const isAuthor = rawParty.type?.toLowerCase().includes('ativo') || rawParty.type?.toLowerCase().includes('autor');
+              const partyEntity = await findOrCreateParty(tenantId, {
+                name: rawParty.name,
+                type: rawParty.name.includes('LTDA') || rawParty.name.includes('S.A.') ? 'pessoa_juridica' : 'pessoa_fisica',
+                enrichmentSource: 'datajud'
+              });
+
+              await linkPartyToProcess({
                 processId: processRecord.id,
-                establishmentId: est.id
-              }
-            },
-            update: {}, // já vinculado
-            create: {
-              processId: processRecord.id,
-              establishmentId: est.id,
-              clientId,
-              tenantId
+                partyId: partyEntity.id,
+                tenantId,
+                polo: isAuthor ? 'autor' : 'reu',
+                side: isAuthor ? 'ativo' : 'passivo'
+              });
             }
+          }
+
+          // 5. Aciona o Enriquecimento Gratuito via DJEN (Diário de Justiça Eletrônico Nacional)
+          enrichProcessFromDjen(processRecord.processNumber, tenantId, processRecord.id).catch(djenErr => {
+            console.warn(`[DJEN] Falha não-bloqueante no enriquecimento:`, djenErr);
           });
 
           // 5. Upsert de Movimentações (ON CONFLICT DO NOTHING é garantido pelo UNIQUE)
@@ -210,6 +255,15 @@ export async function handleSyncJob(job: any) {
       }
     });
 
+    return {
+      success: true,
+      jobId: syncJobRecord.id,
+      establishmentsCount: establishments.length,
+      newProcessesCount,
+      newMovementsCount,
+      partialErrors
+    };
+
   } catch (globalError: any) {
     console.error(`[WORKER] Erro Crítico no SyncJob ${syncJobRecord.id}:`, globalError);
     await prisma.syncJob.update({
@@ -261,11 +315,27 @@ export async function handleImportJob(job: any) {
             create: { tenantId, processNumber: p.processNumber, status: p.status, justiceType: p.justiceType, tribunal: p.tribunal, lastSyncAt: new Date(), sourceAdapter: 'datajud', value: p.value ? BigInt(p.value) : null }
           });
 
-          await tx.processParty.upsert({
-            where: { processId_establishmentId: { processId: processRecord.id, establishmentId: establishment.id } },
-            update: {},
-            create: { processId: processRecord.id, establishmentId: establishment.id, clientId, tenantId }
+          const clientParty = await findOrCreateParty(tenantId, {
+            name: establishment.razaoSocial || `Empresa CNPJ ${establishment.cnpj}`,
+            document: establishment.cnpj,
+            documentType: 'cnpj',
+            type: 'pessoa_juridica',
+            isMasked: false,
+            enrichmentSource: 'datajud'
           });
+
+          await linkPartyToProcess({
+            processId: processRecord.id,
+            partyId: clientParty.id,
+            tenantId,
+            clientId,
+            establishmentId: establishment.id,
+            polo: 'reu',
+            side: 'passivo',
+            isPrimary: true
+          });
+
+          enrichProcessFromDjen(processRecord.processNumber, tenantId, processRecord.id).catch(console.warn);
 
           for (const mov of p.movements) {
             const existingMov = await tx.movement.findUnique({ where: { processId_sourceEventId: { processId: processRecord.id, sourceEventId: mov.eventId } } });

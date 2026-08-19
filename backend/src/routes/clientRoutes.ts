@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getClients, createClient, getClientById, assignUsersToClient } from '../controllers/clientController';
+import { getClients, createClient, getClientById, assignUsersToClient, updateClient } from '../controllers/clientController';
 import { authMiddleware } from '../middlewares/auth';
 import { clientAccessMiddleware } from '../middlewares/clientAccess';
 
@@ -13,6 +13,7 @@ router.post('/', createClient);
 
 // Rotas que exigem checagem de acesso à empresa específica
 router.get('/:id', clientAccessMiddleware, getClientById);
+router.put('/:id', clientAccessMiddleware, updateClient);
 router.post('/:id/users', clientAccessMiddleware, assignUsersToClient);
 
 export default router;

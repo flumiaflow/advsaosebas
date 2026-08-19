@@ -3,17 +3,16 @@ import { prisma } from '../config/db';
 
 export async function clientAccessMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
-    const { id } = req.params; // This expects the route parameter to be the client id, e.g. /clients/:id
+    const id = req.params.id as string; // This expects the route parameter to be the client id, e.g. /clients/:id
     const user = req.user;
 
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Super Admin has no tenant, they can't access client specific routes directly without passing tenant context
-    // Usually they use the backoffice routes
-    if (user.role === 'super_admin') {
-       return res.status(403).json({ error: 'Super Admin cannot access tenant client routes' });
+    // Super Admin e usuários em Impersonation têm acesso total mestre
+    if (user.role === 'super_admin' || (user as any).originalRole === 'super_admin' || (user as any).isImpersonating) {
+      return next();
     }
 
     // Supervisor has automatic access to all clients in their tenant

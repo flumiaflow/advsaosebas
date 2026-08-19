@@ -29,8 +29,16 @@ export async function refresh(req: Request, res: Response) {
       return res.status(401).json({ error: 'Usuário inválido' });
     }
     
+    let currentRole = user.role;
+    let currentTenantId = user.tenantId;
+
+    if (decoded.isImpersonating) {
+      currentRole = decoded.role;
+      currentTenantId = decoded.tenantId;
+    }
+
     console.log('[Refresh] Generating tokens...');
-    const tokens = generateTokens(user.id, user.tenantId, user.role);
+    const tokens = generateTokens(user.id, currentTenantId, currentRole, decoded.isImpersonating, decoded.originalRole);
     
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
@@ -46,8 +54,9 @@ export async function refresh(req: Request, res: Response) {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role,
-        tenantId: user.tenantId
+        role: currentRole,
+        tenantId: currentTenantId,
+        isImpersonating: decoded.isImpersonating || false
       }
     });
   } catch (error) {
@@ -155,6 +164,8 @@ export async function getMe(req: Request, res: Response) {
     // Ler os campos do payload do token customizado que o middleware de auth adiciona no req.user
     const isImpersonating = (req.user as any).isImpersonating || false;
     const originalRole = (req.user as any).originalRole || null;
+    const currentRole = (req.user as any).role || 'user';
+    const currentTenantId = req.user.tenantId;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -165,6 +176,7 @@ export async function getMe(req: Request, res: Response) {
         role: true,
         tenantId: true,
         isActive: true,
+        googleId: true,
         mustChangePassword: true,
         tenant: {
           select: {
@@ -183,6 +195,8 @@ export async function getMe(req: Request, res: Response) {
     return res.status(200).json({ 
       user: {
         ...user,
+        role: currentRole,
+        tenantId: currentTenantId,
         isImpersonating,
         originalRole
       }
@@ -283,7 +297,7 @@ export async function changePassword(req: Request, res: Response) {
     
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
-      where: { id: req.user.userId },
+      where: { id: req.user!.userId },
       data: { passwordHash, mustChangePassword: false }
     });
     
@@ -297,7 +311,7 @@ export async function changePassword(req: Request, res: Response) {
 
 export async function impersonate(req: Request, res: Response) {
   try {
-    const { tenantId } = req.params;
+    const tenantId = req.params.tenantId as string;
     
     // Apenas Super Admins podem invadir escritórios
     if (req.user?.role !== 'super_admin' && !(req.user as any)?.originalRole) {
@@ -309,7 +323,7 @@ export async function impersonate(req: Request, res: Response) {
 
     // Gera um novo Token passando-se por Supervisor do Escritório Alvo
     const { accessToken, refreshToken } = generateTokens(
-      req.user.userId, 
+      req.user!.userId, 
       tenantId, 
       'supervisor', 
       true, // isImpersonating
@@ -325,13 +339,24 @@ export async function impersonate(req: Request, res: Response) {
 
     await logAuditAction({
       tenantId: null, // Logado no contexto do sistema
-      userId: req.user.userId,
+      userId: req.user!.userId,
       action: 'IMPERSONATE_START',
       metadata: { targetTenantId: tenantId, targetTenantName: tenant.name }
     });
 
+    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+
     return res.status(200).json({
       accessToken,
+      user: {
+        id: req.user!.userId,
+        name: user?.name || 'Super Administrador',
+        email: user?.email || 'admin@juriswatch.com',
+        role: 'supervisor',
+        tenantId,
+        isImpersonating: true,
+        originalRole: 'super_admin'
+      },
       message: `Acessando como administrador do escritório ${tenant.name}`
     });
   } catch (error) {
@@ -370,12 +395,83 @@ export async function impersonateExit(req: Request, res: Response) {
       metadata: { fromTenantId: req.user!.tenantId }
     });
 
+    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+
     return res.status(200).json({
       accessToken,
+      user: {
+        id: req.user!.userId,
+        name: user?.name || 'Super Administrador',
+        email: user?.email || 'admin@juriswatch.com',
+        role: 'super_admin',
+        tenantId: null,
+        isImpersonating: false
+      },
       message: 'Sessão fantasma encerrada. Retornando ao Backoffice.'
     });
   } catch (error) {
     console.error('Impersonate Exit error:', error);
     return res.status(500).json({ error: 'Erro ao encerrar sessão fantasma' });
+  }
+}
+
+export async function linkGoogle(req: Request, res: Response, googleUser: any) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.redirect('/login?error=unauthorized');
+
+    const googleId = googleUser.id || googleUser.googleId;
+    if (!googleId) return res.redirect('/settings?error=google_failed');
+
+    const existingUser = await prisma.user.findUnique({ where: { googleId } });
+    if (existingUser && existingUser.id !== userId) {
+      return res.redirect('/settings?error=google_taken');
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { googleId }
+    });
+
+    await logAuditAction({
+      tenantId: req.user!.tenantId,
+      userId,
+      action: 'GOOGLE_LINKED'
+    });
+
+    return res.redirect('/settings?success=google_linked');
+  } catch (error) {
+    console.error('Link google error:', error);
+    return res.redirect('/settings?error=google_failed');
+  }
+}
+
+export async function unlinkGoogle(req: Request, res: Response) {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Não autorizado' });
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+    if (!user.passwordHash) {
+      return res.status(409).json({ error: 'Defina uma senha antes de desvincular o Google' });
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { googleId: null }
+    });
+
+    await logAuditAction({
+      tenantId: req.user!.tenantId,
+      userId,
+      action: 'GOOGLE_UNLINKED'
+    });
+
+    return res.status(200).json({ message: 'Conta Google desvinculada com sucesso' });
+  } catch (error) {
+    console.error('Unlink google error:', error);
+    return res.status(500).json({ error: 'Erro interno ao desvincular Google' });
   }
 }

@@ -27,37 +27,39 @@ export default function ChangePassword() {
     <div className={styles.container}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <h1>Troca Obrigatória</h1>
+          <h2>Troca Obrigatória</h2>
           <p>Por favor, altere sua senha temporária</p>
         </div>
         
-        {error && <div className={styles.error}>{error}</div>}
-        
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <div className={styles.inputGroup}>
-            <label htmlFor="currentPassword">Senha Atual</label>
-            <input 
-              type="password" 
-              id="currentPassword" 
-              value={currentPassword} 
-              onChange={(e) => setCurrentPassword(e.target.value)} 
-              required 
-            />
-          </div>
-
-          <div className={styles.inputGroup}>
-            <label htmlFor="newPassword">Nova Senha</label>
-            <input 
-              type="password" 
-              id="newPassword" 
-              value={newPassword} 
-              onChange={(e) => setNewPassword(e.target.value)} 
-              required 
-            />
-          </div>
+        <div className={styles.body}>
+          {error && <div className={styles.error}>{error}</div>}
           
-          <button type="submit" className={styles.submitBtn}>Atualizar Senha</button>
-        </form>
+          <form className={styles.form} onSubmit={handleSubmit}>
+            <div className={styles.field}>
+              <label htmlFor="currentPassword">Senha Atual</label>
+              <input 
+                type="password" 
+                id="currentPassword" 
+                value={currentPassword} 
+                onChange={(e) => setCurrentPassword(e.target.value)} 
+                required 
+              />
+            </div>
+
+            <div className={styles.field}>
+              <label htmlFor="newPassword">Nova Senha</label>
+              <input 
+                type="password" 
+                id="newPassword" 
+                value={newPassword} 
+                onChange={(e) => setNewPassword(e.target.value)} 
+                required 
+              />
+            </div>
+            
+            <button type="submit" className={styles.btnMain}>Atualizar Senha</button>
+          </form>
+        </div>
       </div>
     </div>
   );

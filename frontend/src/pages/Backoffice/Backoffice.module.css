@@ -33,6 +33,12 @@
   display: flex;
   align-items: center;
   gap: 1rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 .cardIcon {
@@ -42,6 +48,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background-color 0.2s ease;
+}
+
+.card:hover .cardIcon {
+  background-color: var(--color-border);
 }
 
 .card h3 {
@@ -65,22 +76,32 @@
 }
 
 .btnPrimary {
-  background-color: var(--color-primary);
+  background: var(--blue);
   color: #fff;
   border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
+  padding: 6px 14px;
+  border-radius: var(--r);
+  font-family: inherit;
+  font-size: 12px;
   font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
 }
 
 .btnPrimary:hover {
-  background-color: var(--color-primary-hover);
+  background: #1d4ed8;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .tableContainer {
-  background-color: var(--color-bg-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
   overflow: hidden;
 }
 
@@ -90,20 +111,30 @@ table {
 }
 
 th, td {
-  padding: 0.75rem 1rem;
+  padding: 11px 16px;
   text-align: left;
-  border-bottom: 1px solid var(--color-border);
-  font-size: 0.875rem;
+  border-bottom: 1px solid var(--line-subtle);
+  font-size: 12.5px;
 }
 
 th {
-  background-color: var(--color-bg-base);
-  color: var(--color-text-secondary);
-  font-weight: 500;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--line);
+  background-color: var(--surface);
 }
 
 tr:last-child td {
   border-bottom: none;
+}
+
+tr:hover td {
+  background-color: rgba(255, 255, 255, 0.015);
+  cursor: pointer;
 }
 
 .badge {
@@ -112,19 +143,137 @@ tr:last-child td {
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .badge.active {
   background-color: rgba(35, 134, 54, 0.1);
   color: var(--color-success);
+  border: 1px solid rgba(35, 134, 54, 0.2);
 }
 
 .badge.suspended {
   background-color: rgba(210, 153, 34, 0.1);
   color: var(--color-warning);
+  border: 1px solid rgba(210, 153, 34, 0.2);
 }
 
 .badge.cancelled {
   background-color: rgba(218, 54, 51, 0.1);
   color: var(--color-danger);
+  border: 1px solid rgba(218, 54, 51, 0.2);
+}
+
+/* Modals with Glassmorphism */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modalContent {
+  background: rgba(22, 27, 34, 0.95);
+  backdrop-filter: blur(10px);
+  padding: 2rem;
+  border-radius: 12px;
+  width: 600px;
+  max-width: 90vw;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUp 0.3s ease-out;
+}
+
+.modalContent h2 {
+  margin-bottom: 1.5rem;
+  font-size: 1.25rem;
+  color: #fff;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.5rem;
+}
+
+/* Form Styles */
+.formGroup {
+  margin-bottom: 1rem;
+}
+
+.formGroup label {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.formGroup input,
+.formGroup select,
+.formGroup textarea {
+  width: 100%;
+  padding: 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: #fff;
+  font-family: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.formGroup input:focus,
+.formGroup select:focus,
+.formGroup textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+}
+
+.btnSecondary {
+  background: transparent;
+  color: var(--t2);
+  border: 1px solid var(--line);
+  padding: 6px 14px;
+  border-radius: var(--r);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.btnSecondary:hover {
+  background: var(--card);
+  color: var(--t1);
+}
+
+.btnText {
+  background: transparent;
+  color: var(--color-primary);
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.btnText:hover {
+  color: var(--color-primary-hover);
+  text-decoration: underline;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }

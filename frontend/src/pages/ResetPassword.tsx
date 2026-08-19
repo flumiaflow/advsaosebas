@@ -38,27 +38,29 @@ export default function ResetPassword() {
     <div className={styles.container}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <h1>Nova Senha</h1>
+          <h2>Nova Senha</h2>
           <p>Defina sua nova senha de acesso</p>
         </div>
         
-        {error && <div className={styles.error}>{error}</div>}
-        {success && <div style={{ color: 'var(--color-success)', marginBottom: '1rem', fontSize: '0.875rem' }}>{success}</div>}
-        
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <div className={styles.inputGroup}>
-            <label htmlFor="password">Nova Senha</label>
-            <input 
-              type="password" 
-              id="password" 
-              value={newPassword} 
-              onChange={(e) => setNewPassword(e.target.value)} 
-              required 
-            />
-          </div>
+        <div className={styles.body}>
+          {error && <div className={styles.error}>{error}</div>}
+          {success && <div style={{ color: 'var(--green)', marginBottom: '16px', fontSize: '13px' }}>{success}</div>}
           
-          <button type="submit" className={styles.submitBtn}>Salvar Senha</button>
-        </form>
+          <form className={styles.form} onSubmit={handleSubmit}>
+            <div className={styles.field}>
+              <label htmlFor="password">Nova Senha</label>
+              <input 
+                type="password" 
+                id="password" 
+                value={newPassword} 
+                onChange={(e) => setNewPassword(e.target.value)} 
+                required 
+              />
+            </div>
+            
+            <button type="submit" className={styles.btnMain}>Salvar Senha</button>
+          </form>
+        </div>
       </div>
     </div>
   );

@@ -11,8 +11,11 @@ export default function BackofficeLayout() {
     <div className={styles.layout}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <h2>JurisWatch</h2>
-          <span className={styles.badge}>Admin</span>
+          <div className={styles.brandIcon}>
+            <svg width="14" height="14" fill="none" stroke="#fff" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </div>
+          <h2>Juris<span className={styles.colorBlue}>Watch</span></h2>
+          <span className={styles.badge}>MASTER</span>
         </div>
         
         <nav className={styles.nav}>
@@ -31,19 +34,22 @@ export default function BackofficeLayout() {
         </nav>
 
         <div className={styles.userSection}>
-          <div className={styles.userInfo}>
-            <strong>{user?.name}</strong>
-            <span>{user?.email}</span>
+          <div className={styles.userRow}>
+            <div className={styles.uAv}>{user?.name?.charAt(0).toUpperCase()}</div>
+            <div className={styles.userInfo}>
+              <div className={styles.uName}>{user?.name}</div>
+              <div className={styles.uRole}>{user?.role}</div>
+            </div>
+            <button className={styles.logoutBtn} onClick={logout} title="Sair">
+              <LogOut size={14} />
+            </button>
           </div>
-          <button className={styles.logoutBtn} onClick={logout}>
-            <LogOut size={16} /> Sair
-          </button>
         </div>
       </aside>
 
-      <main className={styles.main}>
-        <Outlet />
-      </main>
+        <main className={styles.page}>
+          <Outlet />
+        </main>
     </div>
   );
 }

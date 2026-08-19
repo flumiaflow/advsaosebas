@@ -7,3 +7,7 @@ dist
 *.log
 coverage
 .vscode
+*.tsbuildinfo
+backend/*.js
+!backend/prisma/
+

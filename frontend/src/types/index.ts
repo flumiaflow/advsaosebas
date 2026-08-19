@@ -6,6 +6,8 @@ export interface User {
   role: 'super_admin' | 'supervisor' | 'user';
   mustChangePassword?: boolean;
   googleId?: string | null;
+  isImpersonating?: boolean;
+  originalRole?: string | null;
 }
 
 export interface Tenant {

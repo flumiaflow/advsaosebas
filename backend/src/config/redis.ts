@@ -1,33 +1,50 @@
 import { createClient } from 'redis';
+import dotenv from 'dotenv';
+dotenv.config();
 
-export const redisClient = createClient({
-  url: process.env.REDIS_URL || 'redis://127.0.0.1:6379'
-});
+const useRedis = process.env.NO_REDIS !== 'true' && Boolean(process.env.REDIS_ENABLED === 'true');
 
-const useRedis = process.env.NO_REDIS !== 'true';
+export const redisClient = useRedis
+  ? createClient({ url: process.env.REDIS_URL || 'redis://127.0.0.1:6379' })
+  : null as any;
 
-redisClient.on('error', (err) => console.log('Redis Client Error', err));
+if (redisClient) {
+  redisClient.on('error', (err: any) => {
+    // Log silencioso no dev
+  });
+}
 
 export async function connectRedis() {
-  if (useRedis && !redisClient.isOpen) {
-    await redisClient.connect().catch(console.error);
+  if (redisClient && !redisClient.isOpen) {
+    try {
+      await redisClient.connect();
+      console.log('✅ Connected to Redis successfully');
+    } catch (e) {
+      console.warn('⚠️ Redis não disponível localmente - operando em modo direto sem cache');
+    }
+  } else {
+    console.log('ℹ️ Operando em modo de banco direto (Supabase)');
   }
 }
 
 export async function addToBlacklist(jti: string, expInSeconds: number) {
-  if (!useRedis) return;
-  await redisClient.set(`bl_${jti}`, 'true', { EX: expInSeconds });
+  if (!redisClient || !redisClient.isOpen) return;
+  await redisClient.set(`bl_${jti}`, 'true', { EX: expInSeconds }).catch(() => {});
 }
 
 export async function isTokenBlacklisted(jti: string): Promise<boolean> {
-  if (!useRedis) return false;
-  const exists = await redisClient.get(`bl_${jti}`);
-  return exists === 'true';
+  if (!redisClient || !redisClient.isOpen) return false;
+  try {
+    const exists = await redisClient.get(`bl_${jti}`);
+    return exists === 'true';
+  } catch {
+    return false;
+  }
 }
 
 export async function blacklistToken(jti: string, ttlSeconds: number): Promise<void> {
-  if (!useRedis) return;
+  if (!redisClient || !redisClient.isOpen) return;
   if (ttlSeconds > 0) {
-    await redisClient.setEx(`blacklist:${jti}`, ttlSeconds, 'true');
+    await redisClient.setEx(`blacklist:${jti}`, ttlSeconds, 'true').catch(() => {});
   }
 }

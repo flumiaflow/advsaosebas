@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getProcesses, getProcessDetails, enrichProcessWithDjen } from '../controllers/processController';
+import { getProcesses, getProcessDetails, getProcessDocuments, enrichProcessWithDjen } from '../controllers/processController';
 import { authMiddleware } from '../middlewares/auth';
 
 const router = Router();
@@ -7,6 +7,7 @@ const router = Router();
 router.use(authMiddleware);
 router.get('/', getProcesses);
 router.get('/:id', getProcessDetails);
+router.get('/:id/documents', getProcessDocuments);
 router.post('/:id/enrich-djen', enrichProcessWithDjen);
 
 export default router;

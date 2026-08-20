@@ -33,7 +33,7 @@ export async function enrichProcessFromDjen(processNumber: string, tenantId: str
     const response = await axios.get(url, {
       params: {
         numeroProcesso: cleanNumber,
-        itensPorPagina: 10
+        itensPorPagina: 100
       },
       timeout: 6000,
       headers: {
@@ -49,10 +49,57 @@ export async function enrichProcessFromDjen(processNumber: string, tenantId: str
       return { success: false, reason: 'Nenhuma publicação localizada no DJEN' };
     }
 
-    const items: DjenItem[] = response.data.items;
+    const items: any[] = response.data.items;
     const enrichedParties = [];
+    let movementsCreated = 0;
 
     for (const item of items) {
+      // 1. Salva a publicação completa com texto como andamento na Linha do Tempo
+      if (item.texto) {
+        const pubDate = item.data_disponibilizacao ? new Date(item.data_disponibilizacao) : new Date();
+        const eventId = `djen-${item.id || item.data_disponibilizacao}`;
+        const movTitle = item.tipoComunicacao 
+          ? `Publicação Oficial: ${item.tipoComunicacao}` 
+          : 'Publicação no Diário de Justiça Eletrônico Nacional (DJEN)';
+
+        try {
+          await prisma.movement.upsert({
+            where: {
+              processId_sourceEventId: {
+                processId,
+                sourceEventId: eventId
+              }
+            },
+            update: {
+              eventName: movTitle,
+              description: item.texto,
+              complement: item.link || null,
+              rawData: { link: item.link, hash: item.hash },
+              publishedAt: pubDate
+            },
+            create: {
+              processId,
+              tenantId,
+              sourceEventId: eventId,
+              eventDate: pubDate,
+              publishedAt: pubDate,
+              eventCode: '1061',
+              eventName: movTitle,
+              eventTypeGroup: 'Publicação Oficial',
+              description: item.texto,
+              complement: item.link || null,
+              rawData: { link: item.link, hash: item.hash },
+              importType: 'DJEN',
+              source: 'API_PUBLICA'
+            }
+          });
+          movementsCreated++;
+        } catch (mErr: any) {
+          // Ignora erro duplicado pontual
+        }
+      }
+
+      // 2. Extrai e cadastra partes e advogados citados
       if (item.destinatarios && Array.isArray(item.destinatarios)) {
         for (const dest of item.destinatarios) {
           if (!dest.nome || dest.nome.length < 3) continue;
@@ -71,7 +118,7 @@ export async function enrichProcessFromDjen(processNumber: string, tenantId: str
           const polo = poloMap[dest.polo?.toUpperCase() || ''] || 'outro';
           const side = sideMap[dest.polo?.toUpperCase() || ''] || 'outros';
 
-          // 1. Cria ou desmascara a Parte principal
+          // Cria ou desmascara a Parte principal
           const party = await findOrCreateParty(tenantId, {
             name: dest.nome.trim(),
             type: dest.nome.includes('LTDA') || dest.nome.includes('S.A.') || dest.nome.includes('S/A') || dest.nome.includes('EIRELI') || dest.nome.includes('ME') 
@@ -91,7 +138,7 @@ export async function enrichProcessFromDjen(processNumber: string, tenantId: str
 
           enrichedParties.push({ id: party.id, name: party.name, polo });
 
-          // 2. Se houver advogados informados na publicação, cadastra-os também
+          // Se houver advogados informados na publicação, cadastra-os também
           if (dest.advogados && Array.isArray(dest.advogados)) {
             for (const adv of dest.advogados) {
               if (!adv.nome) continue;
@@ -118,7 +165,12 @@ export async function enrichProcessFromDjen(processNumber: string, tenantId: str
       }
     }
 
-    return { success: true, count: enrichedParties.length, parties: enrichedParties };
+    return { 
+      success: true, 
+      count: enrichedParties.length, 
+      movementsCount: movementsCreated, 
+      parties: enrichedParties 
+    };
   } catch (error) {
     console.error(`DJEN enrichment error for process ${processNumber}:`, error);
     return { success: false, error: 'Erro no enriquecimento DJEN' };

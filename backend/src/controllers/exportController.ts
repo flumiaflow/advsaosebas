@@ -77,8 +77,8 @@ export async function exportProcesses(req: Request, res: Response) {
     });
 
     const data = processes.map(p => {
-      const clients = Array.from(new Set(p.processParties.map(pp => pp.client.name))).join(' | ');
-      const cnpjs = Array.from(new Set(p.processParties.map(pp => pp.establishment.cnpj))).join(' | ');
+      const clients = Array.from(new Set(p.processParties.map(pp => pp.client?.name).filter(Boolean))).join(' | ');
+      const cnpjs = Array.from(new Set(p.processParties.map(pp => pp.establishment?.cnpj).filter(Boolean))).join(' | ');
       
       return {
         'Número CNJ': p.processNumber,

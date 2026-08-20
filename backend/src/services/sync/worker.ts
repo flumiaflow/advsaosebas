@@ -15,7 +15,7 @@ const redisConnection = {
   port: parseInt(process.env.REDIS_PORT || '6379'),
 };
 
-const useRedis = process.env.NO_REDIS !== 'true';
+const useRedis = process.env.NO_REDIS !== 'true' && process.env.REDIS_ENABLED === 'true';
 
 export const syncQueue = useRedis ? new Queue(QUEUE_NAME, { connection: redisConnection }) : null as any;
 export const syncQueueEvents = useRedis ? new QueueEvents(QUEUE_NAME, { connection: redisConnection }) : null as any;
@@ -80,7 +80,7 @@ export async function handleSyncJob(job: any) {
       client?.name,
       client?.fantasyName,
       ...establishments.map(e => e.razaoSocial),
-      ...establishments.map(e => e.nomeFantasia)
+      ...establishments.map(e => e.fantasyName)
     ].filter(Boolean))) as string[];
 
     for (const est of establishments) {

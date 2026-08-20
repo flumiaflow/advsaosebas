@@ -66,7 +66,7 @@ export async function escavadorWebhook(req: Request, res: Response) {
       });
 
       const parties = await prisma.processParty.findMany({ where: { processId: processRecord.id }});
-      const clientIds = [...new Set(parties.map(p => p.clientId))];
+      const clientIds = [...new Set(parties.map(p => p.clientId).filter((id): id is string => Boolean(id)))];
 
       for (const clientId of clientIds) {
         const accesses = await prisma.userClientAccess.findMany({ where: { clientId } });

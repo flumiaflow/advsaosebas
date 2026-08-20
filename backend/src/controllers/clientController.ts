@@ -60,11 +60,11 @@ export async function createClient(req: Request, res: Response) {
     if (!name) return res.status(400).json({ error: 'Nome / Razão Social é obrigatório' });
 
     // Processa lista de CNPJs (array de strings ou objetos)
-    const rawList: string[] = Array.isArray(cnpjs) ? cnpjs : (cnpj ? [cnpj] : []);
+    const rawList: any[] = Array.isArray(cnpjs) ? cnpjs : (cnpj ? [cnpj] : []);
     const validCnpjs = rawList
-      .map(c => typeof c === 'string' ? c.replace(/\D/g, '') : (c?.cnpj?.replace(/\D/g, '') || ''))
-      .filter(c => c.length === 14)
-      .map(c => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'));
+      .map((c: any) => typeof c === 'string' ? c.replace(/\D/g, '') : (c?.cnpj ? String(c.cnpj).replace(/\D/g, '') : ''))
+      .filter((c: string) => c.length === 14)
+      .map((c: string) => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'));
 
     const uniqueCnpjs = Array.from(new Set(validCnpjs));
 

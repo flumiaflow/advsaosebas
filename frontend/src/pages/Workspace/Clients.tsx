@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import styles from '../Backoffice/Backoffice.module.css';
-import { Plus, Trash2, Building2, UploadCloud, RefreshCw, Edit3, CheckCircle2, Loader2, AlertCircle, ArrowRight, X, Terminal, ShieldCheck } from 'lucide-react';
+import { Plus, Trash2, Building2, UploadCloud, RefreshCw, Edit3, CheckCircle2, Loader2, AlertCircle, ArrowRight, X, Terminal, ShieldCheck, Scale } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 function formatCNPJ(value: string): string {
@@ -396,8 +396,15 @@ export default function Clients() {
                 const ests = client.establishments || [];
                 return (
                   <tr key={client.id}>
-                    <td>
-                      <div style={{ fontWeight: 600, color: 'var(--t1)' }}>{client.name}</div>
+                    <td 
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => navigate(`/dashboard/processes?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`)}
+                      title={`Ver todos os processos de ${client.name}`}
+                    >
+                      <div style={{ fontWeight: 600, color: 'var(--blue)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <span>{client.name}</span>
+                        <ArrowRight size={12} style={{ opacity: 0.7 }} />
+                      </div>
                       {client.fantasyName && (
                         <div style={{ color: 'var(--color-text-secondary)', fontSize: '0.75rem' }}>
                           {client.fantasyName}
@@ -452,6 +459,14 @@ export default function Clients() {
                     <td>{new Date(client.createdAt).toLocaleDateString('pt-BR')}</td>
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.6rem', alignItems: 'center' }}>
+                        <button 
+                          onClick={() => navigate(`/dashboard/processes?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`)}
+                          className={styles.btnText}
+                          style={{ color: '#3fb950', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '12px', fontWeight: 600 }}
+                          title="Visualizar processos deste cliente"
+                        >
+                          <Scale size={13} /> Processos
+                        </button>
                         <button 
                           className={styles.btnText}
                           onClick={() => handleOpenEdit(client)}

@@ -72,10 +72,10 @@ export async function getPartyDetails(req: Request, res: Response) {
       tenantId = firstTenant?.id;
     }
 
-    const { id } = req.params;
+    const id = String(req.params.id);
 
     const party = await prisma.party.findFirst({
-      where: { id, tenantId },
+      where: { id, ...(tenantId && { tenantId }) },
       include: {
         processParties: {
           include: {
@@ -105,10 +105,10 @@ export async function forceEnrichProcess(req: Request, res: Response) {
       tenantId = firstTenant?.id;
     }
 
-    const { processId } = req.params;
+    const processId = String(req.params.processId);
 
     const process = await prisma.process.findFirst({
-      where: { id: processId, tenantId }
+      where: { id: processId, ...(tenantId && { tenantId }) }
     });
 
     if (!process) {

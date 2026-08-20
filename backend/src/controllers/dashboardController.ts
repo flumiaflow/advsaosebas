@@ -33,7 +33,7 @@ export async function getDashboardMetrics(req: Request, res: Response) {
     let processIds: string[] | undefined;
     if (role === 'user' && clientIds) {
       const parties = await prisma.processParty.findMany({
-        where: { tenantId, clientId: { in: clientIds } },
+        where: { ...(tenantId && { tenantId }), clientId: { in: clientIds } },
         select: { processId: true }
       });
       processIds = parties.map(p => p.processId);
@@ -41,7 +41,7 @@ export async function getDashboardMetrics(req: Request, res: Response) {
 
     const totalProcesses = await prisma.process.count({
       where: {
-        tenantId,
+        ...(tenantId && { tenantId }),
         ...(processIds && { id: { in: processIds } })
       }
     });
@@ -49,7 +49,7 @@ export async function getDashboardMetrics(req: Request, res: Response) {
     // Pega o último job de sync do sistema
     const lastSystemSync = await prisma.syncJob.findFirst({
       where: {
-        tenantId,
+        ...(tenantId && { tenantId }),
         triggeredBy: 'system'
       },
       orderBy: { startedAt: 'desc' },

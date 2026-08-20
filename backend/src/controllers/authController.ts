@@ -165,7 +165,7 @@ export async function getMe(req: Request, res: Response) {
     const isImpersonating = (req.user as any).isImpersonating || false;
     const originalRole = (req.user as any).originalRole || null;
     const currentRole = (req.user as any).role || 'user';
-    const currentTenantId = req.user.tenantId;
+    const currentTenantId = req.user?.tenantId;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },

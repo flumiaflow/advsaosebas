@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
 import styles from './Processes.module.css';
@@ -13,7 +14,18 @@ import {
   Clock, 
   UserCheck, 
   FileText,
-  Building2
+  Building2,
+  FolderOpen,
+  Scale,
+  FileCheck,
+  Copy,
+  Check,
+  Eye,
+  Download,
+  X,
+  Layers,
+  Sparkles,
+  BookOpen
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -46,10 +58,14 @@ export function cleanPublicationText(raw?: string): string {
     .replace(/&Eacute;/gi, 'É')
     .replace(/&aacute;/gi, 'á')
     .replace(/&Aacute;/gi, 'Á')
+    .replace(/&agrave;/gi, 'à')
+    .replace(/&Agrave;/gi, 'À')
     .replace(/&atilde;/gi, 'ã')
     .replace(/&Atilde;/gi, 'Ã')
     .replace(/&acirc;/gi, 'â')
     .replace(/&Acirc;/gi, 'Â')
+    .replace(/&ecirc;/gi, 'ê')
+    .replace(/&Ecirc;/gi, 'Ê')
     .replace(/&oacute;/gi, 'ó')
     .replace(/&Oacute;/gi, 'Ó')
     .replace(/&otilde;/gi, 'õ')
@@ -60,8 +76,12 @@ export function cleanPublicationText(raw?: string): string {
     .replace(/&Iacute;/gi, 'Í')
     .replace(/&uacute;/gi, 'ú')
     .replace(/&Uacute;/gi, 'Ú')
+    .replace(/&uuml;/gi, 'ü')
+    .replace(/&Uuml;/gi, 'Ü')
     .replace(/&ordm;/gi, 'º')
     .replace(/&ordf;/gi, 'ª')
+    .replace(/&sect;/gi, '§')
+    .replace(/&deg;/gi, '°')
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)));
 
   // Remove linhas em branco excessivas
@@ -75,6 +95,10 @@ export function cleanPublicationText(raw?: string): string {
 
 export default function Processes() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const clientIdParam = searchParams.get('clientId');
+  const clientNameParam = searchParams.get('clientName');
+
   const [selectedProcessId, setSelectedProcessId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'parties' | 'timeline' | 'audit'>('overview');
   const [searchTerm, setSearchTerm] = useState('');
@@ -85,9 +109,11 @@ export default function Processes() {
 
   // List of processes
   const { data: processes, isLoading } = useQuery({
-    queryKey: ['workspace', 'processes'],
+    queryKey: ['workspace', 'processes', clientIdParam],
     queryFn: async () => {
-      const { data } = await api.get('/processes');
+      const { data } = await api.get('/processes', {
+        params: clientIdParam ? { clientId: clientIdParam } : undefined
+      });
       return Array.isArray(data) ? data : data.processes || [];
     }
   });
@@ -350,161 +376,280 @@ export default function Processes() {
           </div>
 
           {/* TAB 0: RESUMO DA CAUSA */}
-          {activeTab === 'overview' && (
-            <div className={styles.tabPanel}>
-              {/* Grid Superior: Objeto da Ação & Partes Principais */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
-                
-                {/* Card 1: Objeto da Ação & Enquadramento */}
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '1.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '0.75rem' }}>
-                    <FileText size={16} color="var(--blue)" />
-                    <h3 style={{ margin: 0, fontSize: '13.5px', fontWeight: 600, color: 'var(--t1)' }}>
-                      Objeto da Ação & Assuntos Reivindicados
-                    </h3>
+          {activeTab === 'overview' && (() => {
+            const num = selectedProcess.processNumber || '';
+            const className = selectedProcess.className || 'Processo Judicial';
+            const subject = selectedProcess.subjectMain || 'Não especificado';
+            const juizo = selectedProcess.justiceType || selectedProcess.varaOrgao || 'Vara Cível';
+            const tribunal = selectedProcess.tribunal || 'Tribunal de Justiça';
+            
+            let mainProcessNumber: string | null = null;
+            for (const m of rawMovements) {
+              const desc = m.description || '';
+              const match = desc.match(/processo\s+principal\s*[:\s(]*([0-9]{7}\-[0-9]{2}\.[0-9]{4}\.[0-9]\.[0-9]{2}\.[0-9]{4})/i) ||
+                            desc.match(/processo\s+principal\s*[:\s(]*([0-9\.\-]+[0-9])/i) ||
+                            desc.match(/autos\s+n[ºo°]?\s*([0-9\.\-]+)/i);
+              if (match && match[1] && match[1] !== num && match[1].length > 8) {
+                mainProcessNumber = match[1];
+                break;
+              }
+            }
+
+            const autor = processDetails?.processParties?.find((p: any) => p.side === 'ativo' || p.polo === 'autor')?.party?.name || 
+                          rawMovements.map((m: any) => m.description?.match(/EXEQUENTE\s*:\s*([^<\n\r]+)/i)?.[1]).find(Boolean) ||
+                          'Polo Ativo';
+                          
+            const reu = processDetails?.processParties?.find((p: any) => p.side === 'passivo' || p.polo === 'reu')?.party?.name || 
+                        rawMovements.map((m: any) => m.description?.match(/EXECUTADO\s*:\s*([^<\n\r]+)/i)?.[1]).find(Boolean) ||
+                        clientName;
+
+            const rawDigits = num.replace(/\D/g, '');
+            const yearMatch = rawDigits.length === 20 ? rawDigits.substring(9, 13) : null;
+
+            let text = `Trata-se de ação de ${className}`;
+            if (subject && subject !== 'Não especificado') {
+              text += ` tendo como matéria/objeto a cobrança de ${subject}`;
+            }
+            if (autor && autor !== 'Polo Ativo') {
+              text += `, promovida por ${autor.trim()}`;
+            }
+            if (reu) {
+              text += ` em face de ${reu.trim()}`;
+            }
+            text += `, em trâmite perante o juízo de ${juizo}`;
+            if (tribunal) {
+              text += ` (${tribunal})`;
+            }
+            text += '.';
+
+            if (mainProcessNumber) {
+              text += ` O procedimento é originário do processo principal nº ${mainProcessNumber}.`;
+            }
+
+            if (yearMatch) {
+              text += ` Ação distribuída no exercício de ${yearMatch}.`;
+            }
+
+            return (
+              <div className={styles.tabPanel}>
+                {/* CARD DE DESTAQUE: SÍNTESE EXECUTIVA DA CAUSA */}
+                <div style={{ 
+                  background: 'linear-gradient(145deg, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.85) 100%)', 
+                  border: '1px solid rgba(88, 166, 255, 0.3)', 
+                  borderRadius: 'var(--r)', 
+                  padding: '1.25rem 1.5rem', 
+                  marginBottom: '1.5rem',
+                  boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ background: 'rgba(88, 166, 255, 0.2)', padding: '6px', borderRadius: '6px', display: 'flex' }}>
+                        <Sparkles size={18} color="#58a6ff" />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '14.5px', fontWeight: 600, color: '#ffffff' }}>
+                          Síntese da Causa & Do que se trata este Processo
+                        </h3>
+                        <span style={{ fontSize: '11px', color: 'var(--t3)' }}>
+                          Resumo contextual inteligente gerado a partir do cruzamento de dados dos autos e publicações
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`${styles.tag} ${styles.tBlue}`} style={{ fontSize: '10.5px', padding: '4px 8px' }}>
+                      Contexto da Ação
+                    </span>
                   </div>
 
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>
-                      Assunto Principal (CNJ / TPU)
+                  <p style={{ 
+                    fontSize: '13.5px', 
+                    lineHeight: '1.7', 
+                    color: '#e2e8f0', 
+                    margin: '0.5rem 0 1rem', 
+                    background: 'rgba(0, 0, 0, 0.3)', 
+                    padding: '14px 18px', 
+                    borderRadius: '8px', 
+                    border: '1px solid rgba(255, 255, 255, 0.08)' 
+                  }}>
+                    {text}
+                  </p>
+
+                  {/* Badges de Metadados Chave */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                    {mainProcessNumber && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(210, 153, 34, 0.15)', border: '1px solid rgba(210, 153, 34, 0.3)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#d29922' }}>
+                        <strong>Processo Principal / Origem:</strong> {mainProcessNumber}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(88, 166, 255, 0.1)', border: '1px solid rgba(88, 166, 255, 0.2)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#93b4fb' }}>
+                      <strong>Comarca / Vara:</strong> {juizo}
                     </div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, color: '#93b4fb', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className={`${styles.tag} ${styles.tBlue}`} style={{ fontSize: '12px', padding: '4px 8px' }}>
-                        📌 {selectedProcess.subjectMain || 'Ação Judicial'}
-                      </span>
+                    {yearMatch && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(63, 185, 80, 0.1)', border: '1px solid rgba(63, 185, 80, 0.2)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#3fb950' }}>
+                        <strong>Ano de Autuação:</strong> {yearMatch}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(188, 140, 255, 0.1)', border: '1px solid rgba(188, 140, 255, 0.2)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#bc8cff' }}>
+                      <strong>Rito / Classe:</strong> {className}
                     </div>
                   </div>
+                </div>
 
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>
-                      Classe Processual & Rito
+                {/* Grid Superior: Objeto da Ação & Partes Principais */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
+                  
+                  {/* Card 1: Objeto da Ação & Enquadramento */}
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '1.25rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '0.75rem' }}>
+                      <FileText size={16} color="var(--blue)" />
+                      <h3 style={{ margin: 0, fontSize: '13.5px', fontWeight: 600, color: 'var(--t1)' }}>
+                        Objeto da Ação & Assuntos Reivindicados
+                      </h3>
                     </div>
-                    <div style={{ fontSize: '13px', color: 'var(--t1)', fontWeight: 500 }}>
-                      {selectedProcess.className || 'Processo Judicial Eletrônico'}
-                    </div>
-                  </div>
 
-                  {selectedProcess.subjectsExtra && selectedProcess.subjectsExtra.length > 0 && (
                     <div style={{ marginBottom: '1rem' }}>
-                      <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '6px' }}>
-                        Temas e Pedidos Secundários Registrados
+                      <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>
+                        Assunto Principal (CNJ / TPU)
                       </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                        {selectedProcess.subjectsExtra.map((sub: string, i: number) => (
-                          <span key={i} className={`${styles.tag} ${styles.tSlate}`} style={{ fontSize: '11px' }}>
-                            {sub}
-                          </span>
-                        ))}
+                      <div style={{ fontSize: '14px', fontWeight: 600, color: '#93b4fb', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className={`${styles.tag} ${styles.tBlue}`} style={{ fontSize: '12px', padding: '4px 8px' }}>
+                          📌 {selectedProcess.subjectMain || 'Ação Judicial'}
+                        </span>
                       </div>
+                    </div>
+
+                    <div style={{ marginBottom: '1rem' }}>
+                      <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '4px' }}>
+                        Classe Processual & Rito
+                      </div>
+                      <div style={{ fontSize: '13px', color: 'var(--t1)', fontWeight: 500 }}>
+                        {selectedProcess.className || 'Processo Judicial Eletrônico'}
+                      </div>
+                    </div>
+
+                    {selectedProcess.subjectsExtra && selectedProcess.subjectsExtra.length > 0 && (
+                      <div style={{ marginBottom: '1rem' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, marginBottom: '6px' }}>
+                          Temas e Pedidos Secundários Registrados
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {selectedProcess.subjectsExtra.map((sub: string, i: number) => (
+                            <span key={i} className={`${styles.tag} ${styles.tSlate}`} style={{ fontSize: '11px' }}>
+                              {sub}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--line-subtle)' }}>
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Valor da Causa</div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#e3b341', marginTop: '2px' }}>
+                          {selectedProcess.value ? `R$ ${Number(selectedProcess.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Não informado nos autos'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Juízo Competente</div>
+                        <div style={{ fontSize: '12px', color: 'var(--t1)', marginTop: '2px', fontWeight: 500 }}>
+                          {selectedProcess.justiceType || selectedProcess.varaOrgao || 'Vara de Origem'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Partes Principais em Litígio */}
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '1.25rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '0.75rem' }}>
+                      <UserCheck size={16} color="#3fb950" />
+                      <h3 style={{ margin: 0, fontSize: '13.5px', fontWeight: 600, color: 'var(--t1)' }}>
+                        Partes Envolvidas no Litígio
+                      </h3>
+                    </div>
+
+                    {/* Polo Ativo */}
+                    <div style={{ marginBottom: '1.25rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                        <span className={`${styles.tag} ${styles.tBlue}`} style={{ fontSize: '10px' }}>Polo Ativo (Quem Move)</span>
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>
+                        {autor}
+                      </div>
+                    </div>
+
+                    {/* Polo Passivo */}
+                    <div style={{ marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                        <span className={`${styles.tag} ${styles.tRed}`} style={{ fontSize: '10px' }}>Polo Passivo (Quem Responde)</span>
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>
+                        {reu}
+                      </div>
+                      {reu === clientName && (
+                        <div style={{ fontSize: '11px', color: 'var(--t3)', fontFamily: 'monospace', marginTop: '2px' }}>
+                          {clientCnpj}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--line-subtle)' }}>
+                      <button 
+                        className={`${styles.btnS} ${styles.ghost}`} 
+                        style={{ width: '100%', justifyContent: 'center' }}
+                        onClick={() => setActiveTab('parties')}
+                      >
+                        Ver todas as partes e advogados →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 3: Última Publicação e Despacho Oficial (DJEN) */}
+                <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Clock size={16} color="#d29922" />
+                      <h3 style={{ margin: 0, fontSize: '13.5px', fontWeight: 600, color: 'var(--t1)' }}>
+                        Última Intimação & Publicação Oficial (DJEN / Tribunal)
+                      </h3>
+                    </div>
+                    <span className={`${styles.tag} ${styles.tGreen}`} style={{ fontSize: '10px' }}>
+                      Fonte Oficial CNJ
+                    </span>
+                  </div>
+
+                  {rawMovements.length > 0 ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                        <span className={styles.mono} style={{ fontSize: '11px', color: 'var(--t3)' }}>
+                          {new Date(rawMovements[0].eventDate).toLocaleDateString('pt-BR')} às {new Date(rawMovements[0].eventDate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className={`${styles.tag} ${styles.tBlue}`} style={{ fontSize: '10px' }}>
+                          {rawMovements[0].eventName || 'Movimentação'}
+                        </span>
+                      </div>
+                      <div style={{ 
+                        background: 'rgba(0, 0, 0, 0.25)', 
+                        border: '1px solid var(--line-subtle)', 
+                        borderRadius: '6px', 
+                        padding: '16px', 
+                        fontSize: '13px', 
+                        lineHeight: '1.7', 
+                        color: 'var(--t1)', 
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                      }}>
+                        {cleanPublicationText(rawMovements[0].description) || 'Nenhum texto de despacho anexado.'}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ color: 'var(--t3)', fontSize: '12px' }}>
+                      Nenhuma publicação ou andamento recente registrado.
                     </div>
                   )}
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--line-subtle)' }}>
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Valor da Causa</div>
-                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#e3b341', marginTop: '2px' }}>
-                        {selectedProcess.value ? `R$ ${Number(selectedProcess.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Não informado nos autos'}
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Juízo Competente</div>
-                      <div style={{ fontSize: '12px', color: 'var(--t1)', marginTop: '2px', fontWeight: 500 }}>
-                        {selectedProcess.justiceType || selectedProcess.varaOrgao || 'Vara de Origem'}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 2: Partes Principais em Litígio */}
-                <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '1.25rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '0.75rem' }}>
-                    <UserCheck size={16} color="#3fb950" />
-                    <h3 style={{ margin: 0, fontSize: '13.5px', fontWeight: 600, color: 'var(--t1)' }}>
-                      Partes Envolvidas no Litígio
-                    </h3>
-                  </div>
-
-                  {/* Polo Ativo */}
-                  <div style={{ marginBottom: '1.25rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                      <span className={`${styles.tag} ${styles.tBlue}`} style={{ fontSize: '10px' }}>Polo Ativo (Quem Move)</span>
-                    </div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>
-                      {processDetails?.processParties?.find((pp: any) => pp.side === 'ativo' || pp.polo === 'autor')?.party?.name || 'Reclamante / Autor'}
-                    </div>
-                  </div>
-
-                  {/* Polo Passivo */}
-                  <div style={{ marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                      <span className={`${styles.tag} ${styles.tRed}`} style={{ fontSize: '10px' }}>Polo Passivo (Quem Responde)</span>
-                    </div>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>
-                      {clientName}
-                    </div>
-                    <div style={{ fontSize: '11px', color: 'var(--t3)', fontFamily: 'monospace', marginTop: '2px' }}>
-                      {clientCnpj}
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--line-subtle)' }}>
-                    <button 
-                      className={`${styles.btnS} ${styles.ghost}`} 
-                      style={{ width: '100%', justifyContent: 'center' }}
-                      onClick={() => setActiveTab('parties')}
-                    >
-                      Ver todas as partes e advogados →
-                    </button>
-                  </div>
                 </div>
               </div>
-
-              {/* Card 3: Última Publicação e Despacho Oficial (DJEN) */}
-              <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r)', padding: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--line)', paddingBottom: '0.75rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Clock size={16} color="#d29922" />
-                    <h3 style={{ margin: 0, fontSize: '13.5px', fontWeight: 600, color: 'var(--t1)' }}>
-                      Última Intimação & Publicação Oficial (DJEN / Tribunal)
-                    </h3>
-                  </div>
-                  <span className={`${styles.tag} ${styles.tGreen}`} style={{ fontSize: '10px' }}>
-                    Fonte Oficial CNJ
-                  </span>
-                </div>
-
-                {rawMovements.length > 0 ? (
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                      <span className={styles.mono} style={{ fontSize: '11px', color: 'var(--t3)' }}>
-                        {new Date(rawMovements[0].eventDate).toLocaleDateString('pt-BR')} às {new Date(rawMovements[0].eventDate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <span className={`${styles.tag} ${styles.tBlue}`} style={{ fontSize: '10px' }}>
-                        {rawMovements[0].eventName || 'Movimentação'}
-                      </span>
-                    </div>
-                    <div style={{ 
-                      background: 'rgba(0, 0, 0, 0.25)', 
-                      border: '1px solid var(--line-subtle)', 
-                      borderRadius: '6px', 
-                      padding: '16px', 
-                      fontSize: '13px', 
-                      lineHeight: '1.7', 
-                      color: 'var(--t1)', 
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word'
-                    }}>
-                      {cleanPublicationText(rawMovements[0].description) || 'Nenhum texto de despacho anexado.'}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ color: 'var(--t3)', fontSize: '12px' }}>
-                    Nenhuma publicação ou andamento recente registrado.
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* TAB 1: PARTES ENVOLVIDAS */}
           {activeTab === 'parties' && (
@@ -695,6 +840,32 @@ export default function Processes() {
                               <div className={styles.tlCardDesc} style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
                                 {cleanPublicationText(mov.description) || 'Movimentação registrada nos autos eletrônicos pelo tribunal de origem.'}
                               </div>
+                              {mov.complement && (mov.complement.startsWith('http://') || mov.complement.startsWith('https://')) && (
+                                <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                                  <a
+                                    href={mov.complement}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                      fontSize: '11.5px',
+                                      color: '#58a6ff',
+                                      textDecoration: 'none',
+                                      padding: '4px 10px',
+                                      background: 'rgba(56, 139, 253, 0.1)',
+                                      borderRadius: '4px',
+                                      border: '1px solid rgba(56, 139, 253, 0.25)',
+                                      transition: 'all 0.2s'
+                                    }}
+                                  >
+                                    <FileText size={12} />
+                                    <span>Abrir Documento / Peça Oficial no Tribunal</span>
+                                    <ExternalLink size={11} style={{ marginLeft: '2px', opacity: 0.8 }} />
+                                  </a>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -793,6 +964,48 @@ export default function Processes() {
       </div>
 
       <div className={styles.pageContent}>
+        {/* Banner de Filtro de Cliente Ativo */}
+        {clientIdParam && (
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(15, 23, 42, 0.8) 100%)', 
+            border: '1px solid rgba(59, 130, 246, 0.4)', 
+            borderRadius: '8px', 
+            padding: '12px 18px', 
+            marginBottom: '1.25rem',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ background: 'rgba(59, 130, 246, 0.2)', padding: '6px', borderRadius: '6px', display: 'flex' }}>
+                <Building2 size={18} color="#58a6ff" />
+              </div>
+              <div>
+                <div style={{ fontSize: '13.5px', color: 'var(--t1)', fontWeight: 600 }}>
+                  Exibindo processos do cliente: <span style={{ color: '#93b4fb' }}>{clientNameParam || 'Cliente Selecionado'}</span>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--t3)' }}>
+                  Filtro aplicado a partir da tela de Clientes ({filteredProcesses?.length || 0} processo(s) encontrado(s))
+                </div>
+              </div>
+            </div>
+            <button 
+              className={`${styles.btnS} ${styles.ghost}`}
+              style={{ padding: '6px 12px', fontSize: '12px', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--line)' }}
+              onClick={() => {
+                searchParams.delete('clientId');
+                searchParams.delete('clientName');
+                setSearchParams(searchParams);
+              }}
+              title="Remover filtro e visualizar processos de todos os clientes"
+            >
+              <X size={13} />
+              Ver todos os clientes
+            </button>
+          </div>
+        )}
+
         {/* Barra de Filtros */}
         <div className={styles.fbar}>
           <div className={styles.fsearch}>

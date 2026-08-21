@@ -35,7 +35,9 @@ export default function Tenants() {
     queryFn: async () => {
       const { data } = await api.get('/backoffice/tenants');
       return Array.isArray(data) ? data : data.tenants || [];
-    }
+    },
+    staleTime: 0,
+    refetchOnMount: 'always'
   });
 
   const createTenantMutation = useMutation({
@@ -115,6 +117,7 @@ export default function Tenants() {
   const handleImpersonate = async (tenantId: string) => {
     try {
       const { data } = await api.post(`/auth/impersonate/${tenantId}`);
+      queryClient.clear(); // Limpa caches anteriores de outros escritórios
       if (data.accessToken && data.user) {
         login(data.accessToken, data.user);
       } else {
@@ -338,6 +341,10 @@ export default function Tenants() {
                   onChange={e => setSupervisorEmail(e.target.value)} 
                   required 
                 />
+              </div>
+
+              <div style={{ backgroundColor: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)', padding: '0.75rem 1rem', borderRadius: '6px', fontSize: '0.8rem', color: '#93c5fd', marginTop: '1rem' }}>
+                ℹ️ <strong>Sincronização Automática:</strong> As regras e horários definidos em <em>Padrões do Sistema</em> serão aplicados automaticamente a este escritório e poderão ser personalizados posteriormente pelo supervisor.
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>

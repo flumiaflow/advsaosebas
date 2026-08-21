@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './hooks/useAuth';
@@ -11,6 +11,7 @@ import ChangePassword from './pages/ChangePassword';
 import BackofficeLayout from './layouts/BackofficeLayout';
 import BackofficeDashboard from './pages/Backoffice/Dashboard';
 import Tenants from './pages/Backoffice/Tenants';
+import SystemSettings from './pages/Backoffice/SystemSettings';
 
 import WorkspaceLayout from './layouts/WorkspaceLayout';
 import WorkspaceDashboard from './pages/Workspace/Dashboard';
@@ -22,17 +23,27 @@ import Settings from './pages/Workspace/Settings';
 
 import React from 'react';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 1000 * 60 * 2, // 2 minutos de cache no navegador (evita refetch desnecessário ao mudar de aba)
+      gcTime: 1000 * 60 * 10,   // Mantém em memória por 10 minutos
+      refetchOnWindowFocus: false, // Não trava a tela ao focar a janela
+      retry: 1,
+    }
+  }
+});
 
 import Unauthorized from './pages/Unauthorized';
 
 // A simple protected route wrapper
 const ProtectedRoute = ({ children, allowedRoles }: { children: React.ReactNode, allowedRoles?: string[] }) => {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
   
   if (isLoading) return <div>Carregando...</div>;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.mustChangePassword) return <Navigate to="/change-password" replace />;
+  if (user.mustChangePassword && location.pathname !== '/change-password') return <Navigate to="/change-password" replace />;
   
   if (allowedRoles) {
     const isSuperAdmin = user.role === 'super_admin' || user.isImpersonating || (user as any).originalRole === 'super_admin';
@@ -60,6 +71,7 @@ const AppRoutes = () => {
       <Route path="/backoffice" element={<ProtectedRoute allowedRoles={['super_admin']}><BackofficeLayout /></ProtectedRoute>}>
         <Route index element={<BackofficeDashboard />} />
         <Route path="tenants" element={<Tenants />} />
+        <Route path="settings" element={<SystemSettings />} />
       </Route>
 
       {/* Workspace (Supervisor, User, and Super Admin) */}

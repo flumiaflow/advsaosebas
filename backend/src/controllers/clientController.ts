@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { logAuditAction } from '../middlewares/auditLogger';
+import { getCache, setCache } from '../config/redis';
 
 export async function getClients(req: Request, res: Response) {
   try {
@@ -11,13 +12,32 @@ export async function getClients(req: Request, res: Response) {
     }
     if (!tenantId) return res.status(403).json({ error: 'Acesso negado' });
 
+    const userId = req.user?.userId;
+    const role = req.user?.role;
+    const cacheKey = `clients:${tenantId}:${role === 'user' ? userId : 'all'}`;
+
+    const cached = await getCache<any>(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
+
     // Se for supervisor ou super_admin, vê todos. Se for user comum, vê só os atribuídos
     let clients;
-    if (req.user?.role === 'supervisor' || req.user?.role === 'super_admin') {
+    if (role === 'supervisor' || role === 'super_admin') {
       clients = await prisma.client.findMany({
         where: { tenantId },
-        include: { 
-          establishments: { orderBy: { createdAt: 'asc' } },
+        select: {
+          id: true,
+          tenantId: true,
+          name: true,
+          fantasyName: true,
+          notes: true,
+          isActive: true,
+          createdAt: true,
+          establishments: {
+            select: { id: true, cnpj: true, razaoSocial: true, fantasyName: true, type: true },
+            orderBy: { createdAt: 'asc' }
+          },
           _count: { select: { establishments: true } }
         },
         orderBy: { createdAt: 'desc' }
@@ -28,16 +48,30 @@ export async function getClients(req: Request, res: Response) {
           tenantId,
           userClientAccesses: { some: { userId: req.user!.userId } }
         },
-        include: { 
-          establishments: { orderBy: { createdAt: 'asc' } },
+        select: {
+          id: true,
+          tenantId: true,
+          name: true,
+          fantasyName: true,
+          notes: true,
+          isActive: true,
+          createdAt: true,
+          establishments: {
+            select: { id: true, cnpj: true, razaoSocial: true, fantasyName: true, type: true },
+            orderBy: { createdAt: 'asc' }
+          },
           _count: { select: { establishments: true } }
         },
         orderBy: { createdAt: 'desc' }
       });
     }
 
+    // Cache por 60 segundos
+    await setCache(cacheKey, clients, 60);
+
     return res.status(200).json(clients);
   } catch (error) {
+    console.error('getClients error:', error);
     return res.status(500).json({ error: 'Erro interno' });
   }
 }
@@ -86,6 +120,21 @@ export async function createClient(req: Request, res: Response) {
       }
     }
 
+    // Consulta automática da Razão Social oficial de cada CNPJ via BrasilAPI / ReceitaWS
+    const { lookupCompanyByCnpj } = await import('../services/cnpjLookup');
+    const establishmentsData = await Promise.all(
+      uniqueCnpjs.map(async (cnpjStr, idx) => {
+        const companyInfo = await lookupCompanyByCnpj(cnpjStr);
+        return {
+          tenantId: tenantId!,
+          cnpj: cnpjStr,
+          razaoSocial: companyInfo?.razaoSocial || name,
+          fantasyName: companyInfo?.fantasyName || fantasyName || name,
+          type: idx === 0 ? 'matriz' : 'filial'
+        };
+      })
+    );
+
     const client = await prisma.client.create({
       data: {
         tenantId,
@@ -93,15 +142,9 @@ export async function createClient(req: Request, res: Response) {
         fantasyName,
         notes,
         createdById: req.user!.userId,
-        ...(uniqueCnpjs.length > 0 ? {
+        ...(establishmentsData.length > 0 ? {
           establishments: {
-            create: uniqueCnpjs.map((cnpjStr, idx) => ({
-              tenantId,
-              cnpj: cnpjStr,
-              razaoSocial: name,
-              fantasyName: fantasyName || name,
-              type: idx === 0 ? 'matriz' : 'filial'
-            }))
+            create: establishmentsData
           }
         } : {})
       },
@@ -233,15 +276,23 @@ export async function updateClient(req: Request, res: Response) {
       // Novos CNPJs a adicionar
       const toCreate = uniqueCnpjs.filter(c => !existingCnpjSet.has(c));
       if (toCreate.length > 0) {
+        const { lookupCompanyByCnpj } = await import('../services/cnpjLookup');
+        const establishmentsToCreate = await Promise.all(
+          toCreate.map(async (cnpjStr, idx) => {
+            const info = await lookupCompanyByCnpj(cnpjStr);
+            return {
+              tenantId: existingClient.tenantId,
+              clientId: id,
+              cnpj: cnpjStr,
+              razaoSocial: info?.razaoSocial || name || existingClient.name,
+              fantasyName: info?.fantasyName || fantasyName || existingClient.fantasyName || name,
+              type: existingEsts.length === 0 && idx === 0 ? 'matriz' : 'filial'
+            };
+          })
+        );
+
         await prisma.establishment.createMany({
-          data: toCreate.map((cnpjStr, idx) => ({
-            tenantId: existingClient.tenantId,
-            clientId: id,
-            cnpj: cnpjStr,
-            razaoSocial: name || existingClient.name,
-            fantasyName: fantasyName || existingClient.fantasyName,
-            type: existingEsts.length === 0 && idx === 0 ? 'matriz' : 'filial'
-          }))
+          data: establishmentsToCreate
         });
       }
 

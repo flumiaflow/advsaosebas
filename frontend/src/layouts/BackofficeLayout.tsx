@@ -1,6 +1,6 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { LayoutDashboard, Building2, LogOut } from 'lucide-react';
+import { LayoutDashboard, Building2, Sliders, LogOut } from 'lucide-react';
 import styles from './Layout.module.css';
 
 export default function BackofficeLayout() {
@@ -30,6 +30,12 @@ export default function BackofficeLayout() {
             className={location.pathname.includes('/tenants') ? styles.active : ''}
           >
             <Building2 size={18} /> Escritórios
+          </Link>
+          <Link 
+            to="/backoffice/settings" 
+            className={location.pathname.includes('/settings') ? styles.active : ''}
+          >
+            <Sliders size={18} /> Padrões do Sistema
           </Link>
         </nav>
 

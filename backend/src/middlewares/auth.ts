@@ -32,7 +32,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     }
 
     // Check if tenant is active
-    if (payload.tenantId) {
+    const isSuperAdmin = payload.role === 'super_admin' || (payload as any).originalRole === 'super_admin';
+    if (payload.tenantId && !isSuperAdmin) {
       const tenant = await prisma.tenant.findUnique({
         where: { id: payload.tenantId }
       });
@@ -58,7 +59,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
 }
 
 export function superAdminMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (req.user?.role !== 'super_admin') {
+  const isSuperAdmin = req.user?.role === 'super_admin' || (req.user as any)?.originalRole === 'super_admin' || (req.user as any)?.isImpersonating;
+  if (!isSuperAdmin) {
     return res.status(403).json({ error: 'Access denied: Super Admin only' });
   }
   next();

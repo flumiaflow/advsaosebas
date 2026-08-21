@@ -67,7 +67,12 @@ export default function WorkspaceDashboard() {
       )}
 
       <div className={styles.grid}>
-        <div className={styles.card}>
+        <div 
+          className={styles.card} 
+          onClick={() => navigate('/dashboard/processes')}
+          style={{ cursor: 'pointer', transition: 'transform 0.15s ease, border-color 0.15s ease' }}
+          title="Ver todos os processos deste escritório"
+        >
           <div className={styles.cardIcon} style={{ color: 'var(--color-primary)' }}>
             <FileText size={24} />
           </div>
@@ -77,7 +82,12 @@ export default function WorkspaceDashboard() {
           </div>
         </div>
 
-        <div className={styles.card}>
+        <div 
+          className={styles.card} 
+          onClick={() => navigate('/dashboard/clients')}
+          style={{ cursor: 'pointer', transition: 'transform 0.15s ease, border-color 0.15s ease' }}
+          title="Ver empresas monitoradas deste escritório"
+        >
           <div className={styles.cardIcon} style={{ color: 'var(--color-success)' }}>
             <Users size={24} />
           </div>

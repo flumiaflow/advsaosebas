@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
@@ -19,13 +19,19 @@ import {
   Scale,
   FileCheck,
   Copy,
-  Check,
+  CheckCircle,
   Eye,
   Download,
   X,
   Layers,
   Sparkles,
-  BookOpen
+  BookOpen,
+  SlidersHorizontal,
+  Filter,
+  ArrowUpDown,
+  RotateCcw,
+  Briefcase,
+  Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -101,8 +107,31 @@ export default function Processes() {
 
   const [selectedProcessId, setSelectedProcessId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'parties' | 'timeline' | 'audit'>('overview');
+  const [isSyncSummaryOpen, setIsSyncSummaryOpen] = useState(false);
+  
+  // Details Modal State
+  const [selectedJobForDetails, setSelectedJobForDetails] = useState<any>(null);
+  const { data: syncJobDetails, isLoading: isLoadingJobDetails } = useQuery({
+    queryKey: ['workspace', 'syncJobDetails', selectedJobForDetails?.id],
+    queryFn: async () => {
+      const { data } = await api.get(`/sync/job/${selectedJobForDetails.id}/details`);
+      return data.details || [];
+    },
+    enabled: !!selectedJobForDetails,
+  });
+  
+  // Filter States
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tribunalFilter, setTribunalFilter] = useState('all');
+  const [clientFilter, setClientFilter] = useState(clientIdParam || 'all');
+  const [justiceTypeFilter, setJusticeTypeFilter] = useState('all');
+  const [movementsFilter, setMovementsFilter] = useState('all');
+  const [valueFilter, setValueFilter] = useState('all');
+  const [authorSearch, setAuthorSearch] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
+  const [quickPill, setQuickPill] = useState<'all' | 'active' | 'trabalhista' | 'civel' | 'with_mov'>('all');
+  const [isAdvFilterOpen, setIsAdvFilterOpen] = useState(false);
   const [sortAsc, setSortAsc] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -117,6 +146,108 @@ export default function Processes() {
       return Array.isArray(data) ? data : data.processes || [];
     }
   });
+
+  // Sync Tracker Query
+  const { data: syncStatus } = useQuery({
+    queryKey: ['workspace', 'syncStatus', clientFilter],
+    queryFn: async () => {
+      const { data } = await api.get(`/sync/status/client/${clientFilter}`);
+      return data;
+    },
+    enabled: clientFilter !== 'all',
+    refetchInterval: (query) => (query.state.data?.status === 'running' ? 3000 : false)
+  });
+
+  // Sync History Query
+  const { data: syncHistory, refetch: refetchSyncHistory, isLoading: isLoadingSyncHistory } = useQuery({
+    queryKey: ['workspace', 'syncHistory', clientFilter],
+    queryFn: async () => {
+      const { data } = await api.get(`/sync/history/client/${clientFilter}`);
+      return data;
+    },
+    enabled: isSyncSummaryOpen && clientFilter !== 'all',
+  });
+
+  useEffect(() => {
+    if (syncStatus?.status === 'success' || syncStatus?.status === 'error') {
+      if (isSyncSummaryOpen) refetchSyncHistory();
+    }
+  }, [syncStatus?.status, isSyncSummaryOpen, refetchSyncHistory]);
+
+  // Distinct Tribunals for dropdown
+  const distinctTribunals = useMemo(() => {
+    if (!processes) return [];
+    const set = new Set<string>();
+    processes.forEach((p: any) => {
+      const t = p.tribunal || p.court;
+      if (t) set.add(t);
+    });
+    return Array.from(set).sort();
+  }, [processes]);
+
+  // Distinct Clients for dropdown
+  const distinctClients = useMemo(() => {
+    if (!processes) return [];
+    const map = new Map<string, string>();
+    processes.forEach((p: any) => {
+      p.processParties?.forEach((pp: any) => {
+        const cId = pp.clientId || pp.client?.id;
+        const cName = pp.client?.name || pp.establishment?.razaoSocial;
+        if (cId && cName) {
+          map.set(cId, cName);
+        }
+      });
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [processes]);
+
+  // Quick Filter Pill Counts
+  const quickCounts = useMemo(() => {
+    if (!processes) return { all: 0, active: 0, trabalhista: 0, civel: 0, with_mov: 0 };
+    let active = 0;
+    let trabalhista = 0;
+    let civel = 0;
+    let with_mov = 0;
+
+    processes.forEach((p: any) => {
+      if (p.status === 'active' || p.status === 'ativo' || p.status === 'Ativo') active++;
+      const txt = `${p.justiceType || ''} ${p.tribunal || ''} ${p.className || ''}`.toLowerCase();
+      if (txt.includes('trab') || txt.includes('trt') || txt.includes('tst')) trabalhista++;
+      if (txt.includes('cív') || txt.includes('civ') || txt.includes('tj')) civel++;
+      const movCount = p._count?.movements || p.movements?.length || 0;
+      if (movCount > 0) with_mov++;
+    });
+
+    return { all: processes.length, active, trabalhista, civel, with_mov };
+  }, [processes]);
+
+  // Active filter count
+  const activeFilterCount = useMemo(() => {
+    return [
+      statusFilter !== 'all',
+      tribunalFilter !== 'all',
+      clientFilter !== 'all',
+      justiceTypeFilter !== 'all',
+      movementsFilter !== 'all',
+      valueFilter !== 'all',
+      authorSearch.trim().length > 0,
+      quickPill !== 'all'
+    ].filter(Boolean).length;
+  }, [statusFilter, tribunalFilter, clientFilter, justiceTypeFilter, movementsFilter, valueFilter, authorSearch, quickPill]);
+
+  const handleClearAllFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setTribunalFilter('all');
+    setClientFilter('all');
+    setJusticeTypeFilter('all');
+    setMovementsFilter('all');
+    setValueFilter('all');
+    setAuthorSearch('');
+    setSortBy('recent');
+    setQuickPill('all');
+    setCurrentPage(1);
+  };
 
   // Process Details
   const { data: processDetails, isLoading: isLoadingDetails } = useQuery({
@@ -196,16 +327,135 @@ export default function Processes() {
     return { color: '#8b949e', tagClass: styles.tSlate, label: 'Andamento' };
   };
 
-  const filteredProcesses = processes?.filter((p: any) => {
-    const matchesSearch = 
-      p.processNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.court && p.court.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.nature && p.nature.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (p.processParties && p.processParties.some((pt: any) => pt.client?.name?.toLowerCase().includes(searchTerm.toLowerCase())));
-    
-    const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredProcesses = useMemo(() => {
+    if (!processes) return [];
+
+    return processes.filter((p: any) => {
+      // Quick pill filter
+      if (quickPill === 'active' && !(p.status === 'active' || p.status === 'ativo' || p.status === 'Ativo')) return false;
+      if (quickPill === 'trabalhista') {
+        const txt = `${p.justiceType || ''} ${p.tribunal || ''} ${p.className || ''}`.toLowerCase();
+        if (!txt.includes('trab') && !txt.includes('trt') && !txt.includes('tst')) return false;
+      }
+      if (quickPill === 'civel') {
+        const txt = `${p.justiceType || ''} ${p.tribunal || ''} ${p.className || ''}`.toLowerCase();
+        if (!txt.includes('cív') && !txt.includes('civ') && !txt.includes('tj')) return false;
+      }
+      if (quickPill === 'with_mov') {
+        const movCount = p._count?.movements || p.movements?.length || 0;
+        if (movCount === 0) return false;
+      }
+
+      // 1. Full-text search
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase().trim();
+        const numMatch = p.processNumber?.toLowerCase().includes(term);
+        const codeMatch = p.id && `#prc-${p.id.slice(0, 8).toLowerCase()}`.includes(term);
+        const tribunalMatch = (p.tribunal || p.court || '').toLowerCase().includes(term);
+        const classMatch = (p.className || '').toLowerCase().includes(term);
+        const subjectMatch = (p.subjectMain || '').toLowerCase().includes(term);
+        const varaMatch = (p.justiceType || p.varaOrgao || '').toLowerCase().includes(term);
+        
+        const clientMatch = p.processParties?.some((pp: any) => 
+          pp.client?.name?.toLowerCase().includes(term) ||
+          pp.establishment?.razaoSocial?.toLowerCase().includes(term) ||
+          pp.establishment?.cnpj?.includes(term)
+        );
+
+        const partyMatch = p.processParties?.some((pp: any) => 
+          pp.party?.name?.toLowerCase().includes(term) ||
+          pp.party?.document?.includes(term)
+        );
+
+        if (!numMatch && !codeMatch && !tribunalMatch && !classMatch && !subjectMatch && !varaMatch && !clientMatch && !partyMatch) {
+          return false;
+        }
+      }
+
+      // 2. Status filter
+      if (statusFilter !== 'all') {
+        const isAct = p.status === 'active' || p.status === 'ativo' || p.status === 'Ativo';
+        const isSusp = p.status === 'suspended' || p.status === 'suspenso';
+        const isArch = p.status === 'archived' || p.status === 'arquivado';
+        if (statusFilter === 'active' && !isAct) return false;
+        if (statusFilter === 'suspended' && !isSusp) return false;
+        if (statusFilter === 'archived' && !isArch) return false;
+      }
+
+      // 3. Tribunal filter
+      if (tribunalFilter !== 'all') {
+        const t = p.tribunal || p.court;
+        if (t !== tribunalFilter) return false;
+      }
+
+      // 4. Client filter
+      if (clientFilter !== 'all') {
+        const hasClient = p.processParties?.some((pp: any) => pp.clientId === clientFilter || pp.client?.id === clientFilter);
+        if (!hasClient) return false;
+      }
+
+      // 5. Justice Type / Ramificação
+      if (justiceTypeFilter !== 'all') {
+        const txt = `${p.justiceType || ''} ${p.tribunal || ''} ${p.className || ''}`.toLowerCase();
+        if (justiceTypeFilter === 'trabalhista' && !txt.includes('trab') && !txt.includes('trt') && !txt.includes('tst')) return false;
+        if (justiceTypeFilter === 'civel' && !txt.includes('cív') && !txt.includes('civ') && !txt.includes('tj')) return false;
+        if (justiceTypeFilter === 'federal' && !txt.includes('trf') && !txt.includes('jf') && !txt.includes('federal')) return false;
+      }
+
+      // 6. Movements filter
+      if (movementsFilter !== 'all') {
+        const count = p._count?.movements || p.movements?.length || 0;
+        if (movementsFilter === 'with_mov' && count === 0) return false;
+        if (movementsFilter === 'no_mov' && count > 0) return false;
+      }
+
+      // 7. Value filter
+      if (valueFilter !== 'all') {
+        const val = p.value ? Number(p.value) : 0;
+        if (valueFilter === 'under_20k' && val >= 20000) return false;
+        if (valueFilter === '20k_100k' && (val < 20000 || val > 100000)) return false;
+        if (valueFilter === 'over_100k' && val <= 100000) return false;
+      }
+
+      // 8. Author / Parte Contrária search
+      if (authorSearch.trim()) {
+        const term = authorSearch.toLowerCase().trim();
+        const hasAuthor = p.processParties?.some((pp: any) => 
+          (pp.side === 'ativo' || pp.polo === 'autor') && 
+          (pp.party?.name?.toLowerCase().includes(term) || pp.party?.document?.includes(term))
+        );
+        if (!hasAuthor) return false;
+      }
+
+      return true;
+    }).sort((a: any, b: any) => {
+      if (sortBy === 'recent') {
+        const timeA = new Date(a.lastSyncAt || a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.lastSyncAt || b.updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      }
+      if (sortBy === 'oldest') {
+        const timeA = new Date(a.lastSyncAt || a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.lastSyncAt || b.updatedAt || b.createdAt || 0).getTime();
+        return timeA - timeB;
+      }
+      if (sortBy === 'value_desc') {
+        return (Number(b.value) || 0) - (Number(a.value) || 0);
+      }
+      if (sortBy === 'value_asc') {
+        return (Number(a.value) || 0) - (Number(b.value) || 0);
+      }
+      if (sortBy === 'cnj_asc') {
+        return (a.processNumber || '').localeCompare(b.processNumber || '');
+      }
+      if (sortBy === 'client_asc') {
+        const nameA = a.processParties?.find((p: any) => p.client)?.client?.name || '';
+        const nameB = b.processParties?.find((p: any) => p.client)?.client?.name || '';
+        return nameA.localeCompare(nameB);
+      }
+      return 0;
+    });
+  }, [processes, quickPill, searchTerm, statusFilter, tribunalFilter, clientFilter, justiceTypeFilter, movementsFilter, valueFilter, authorSearch, sortBy]);
 
   const selectedProcess = processes?.find((p: any) => p.id === selectedProcessId) || processDetails;
 
@@ -406,6 +656,21 @@ export default function Processes() {
             const rawDigits = num.replace(/\D/g, '');
             const yearMatch = rawDigits.length === 20 ? rawDigits.substring(9, 13) : null;
 
+            // Dates: Opening (Distribution) & Last Update (Newest Movement)
+            const sortedMovementsByDateDesc = [...rawMovements].sort((a: any, b: any) => new Date(b.eventDate).getTime() - new Date(a.eventDate).getTime());
+            const lastMovement = sortedMovementsByDateDesc[0];
+            const oldestMovement = sortedMovementsByDateDesc[sortedMovementsByDateDesc.length - 1];
+
+            const lastMovementDateStr = lastMovement?.eventDate 
+              ? new Date(lastMovement.eventDate).toLocaleDateString('pt-BR') 
+              : (selectedProcess.lastSyncAt ? new Date(selectedProcess.lastSyncAt).toLocaleDateString('pt-BR') : 'Não informado');
+
+            const lastMovementName = lastMovement?.eventName || lastMovement?.description?.slice(0, 30) || 'Movimentação Processual';
+
+            const openingDateStr = selectedProcess.distributionDate 
+              ? new Date(selectedProcess.distributionDate).toLocaleDateString('pt-BR')
+              : (oldestMovement?.eventDate ? new Date(oldestMovement.eventDate).toLocaleDateString('pt-BR') : (yearMatch ? `Exercício de ${yearMatch}` : 'Não informada'));
+
             let text = `Trata-se de ação de ${className}`;
             if (subject && subject !== 'Não especificado') {
               text += ` tendo como matéria/objeto a cobrança de ${subject}`;
@@ -426,8 +691,14 @@ export default function Processes() {
               text += ` O procedimento é originário do processo principal nº ${mainProcessNumber}.`;
             }
 
-            if (yearMatch) {
+            if (openingDateStr && openingDateStr !== 'Não informada') {
+              text += ` Ação com abertura/distribuição registrada em ${openingDateStr}.`;
+            } else if (yearMatch) {
               text += ` Ação distribuída no exercício de ${yearMatch}.`;
+            }
+
+            if (lastMovement) {
+              text += ` Última atualização processual em ${lastMovementDateStr} (${lastMovementName}).`;
             }
 
             return (
@@ -460,21 +731,54 @@ export default function Processes() {
                     </span>
                   </div>
 
-                  <p style={{ 
-                    fontSize: '13.5px', 
-                    lineHeight: '1.7', 
-                    color: '#e2e8f0', 
-                    margin: '0.5rem 0 1rem', 
-                    background: 'rgba(0, 0, 0, 0.3)', 
-                    padding: '14px 18px', 
-                    borderRadius: '8px', 
-                    border: '1px solid rgba(255, 255, 255, 0.08)' 
-                  }}>
-                    {text}
-                  </p>
+                  {isLoadingDetails ? (
+                    <div style={{
+                      margin: '0.5rem 0 1rem', 
+                      background: 'rgba(0, 0, 0, 0.3)', 
+                      padding: '24px 18px', 
+                      borderRadius: '8px', 
+                      border: '1px solid rgba(56, 139, 253, 0.2)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '12px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#58a6ff' }}>
+                        <Loader2 size={18} className={styles.spin} />
+                        <span style={{ fontSize: '13px', fontWeight: 500, letterSpacing: '0.5px' }}>Gerando síntese inteligente a partir da rede...</span>
+                      </div>
+                      <div style={{ width: '100%', maxWidth: '400px', height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden', position: 'relative' }}>
+                        <div className={styles.aiLoadingBar} />
+                      </div>
+                    </div>
+                  ) : (
+                    <p style={{ 
+                      fontSize: '13.5px', 
+                      lineHeight: '1.7', 
+                      color: '#e2e8f0', 
+                      margin: '0.5rem 0 1rem', 
+                      background: 'rgba(0, 0, 0, 0.3)', 
+                      padding: '14px 18px', 
+                      borderRadius: '8px', 
+                      border: '1px solid rgba(255, 255, 255, 0.08)' 
+                    }}>
+                      {text}
+                    </p>
+                  )}
 
                   {/* Badges de Metadados Chave */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(56, 139, 253, 0.12)', border: '1px solid rgba(56, 139, 253, 0.3)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#79c0ff' }}>
+                      <Calendar size={12} />
+                      <strong>Abertura / Ajuizamento:</strong> {openingDateStr}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(63, 185, 80, 0.12)', border: '1px solid rgba(63, 185, 80, 0.3)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#56d364' }}>
+                      <Clock size={12} />
+                      <strong>Último Evento:</strong> {lastMovementDateStr}
+                    </div>
+
                     {mainProcessNumber && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(210, 153, 34, 0.15)', border: '1px solid rgba(210, 153, 34, 0.3)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#d29922' }}>
                         <strong>Processo Principal / Origem:</strong> {mainProcessNumber}
@@ -483,11 +787,6 @@ export default function Processes() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(88, 166, 255, 0.1)', border: '1px solid rgba(88, 166, 255, 0.2)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#93b4fb' }}>
                       <strong>Comarca / Vara:</strong> {juizo}
                     </div>
-                    {yearMatch && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(63, 185, 80, 0.1)', border: '1px solid rgba(63, 185, 80, 0.2)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#3fb950' }}>
-                        <strong>Ano de Autuação:</strong> {yearMatch}
-                      </div>
-                    )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(188, 140, 255, 0.1)', border: '1px solid rgba(188, 140, 255, 0.2)', padding: '4px 10px', borderRadius: '6px', fontSize: '11.5px', color: '#bc8cff' }}>
                       <strong>Rito / Classe:</strong> {className}
                     </div>
@@ -541,15 +840,40 @@ export default function Processes() {
                       </div>
                     )}
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--line-subtle)' }}>
+                    {/* Metadados Chave: 4 Itens (Abertura, Última Atualização, Valor e Juízo) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 16px', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--line-subtle)' }}>
                       <div>
-                        <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Valor da Causa</div>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: '#e3b341', marginTop: '2px' }}>
+                        <div style={{ fontSize: '10.5px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Calendar size={11} color="#58a6ff" /> Data de Abertura
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)', marginTop: '2px' }}>
+                          {openingDateStr}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: '10.5px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Clock size={11} color="#3fb950" /> Última Atualização (Evento)
+                        </div>
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: '#3fb950', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span>{lastMovementDateStr}</span>
+                          {lastMovement && (
+                            <span className={`${styles.tag} ${styles.tGreen}`} style={{ fontSize: '9.5px', padding: '1px 5px' }}>
+                              {lastMovementName.length > 20 ? `${lastMovementName.slice(0, 20)}...` : lastMovementName}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: '10.5px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Valor da Causa</div>
+                        <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#e3b341', marginTop: '2px' }}>
                           {selectedProcess.value ? `R$ ${Number(selectedProcess.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Não informado nos autos'}
                         </div>
                       </div>
+
                       <div>
-                        <div style={{ fontSize: '11px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Juízo Competente</div>
+                        <div style={{ fontSize: '10.5px', color: 'var(--t3)', textTransform: 'uppercase', fontWeight: 600 }}>Juízo Competente</div>
                         <div style={{ fontSize: '12px', color: 'var(--t1)', marginTop: '2px', fontWeight: 500 }}>
                           {selectedProcess.justiceType || selectedProcess.varaOrgao || 'Vara de Origem'}
                         </div>
@@ -574,6 +898,11 @@ export default function Processes() {
                       <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>
                         {autor}
                       </div>
+                      {processDetails?.processParties?.find((p: any) => (p.side === 'ativo' || p.polo === 'autor') && (p.party?.document || p.establishment?.cnpj)) && (
+                        <div style={{ fontSize: '11px', color: 'var(--t3)', fontFamily: 'monospace', marginTop: '2px' }}>
+                          {processDetails.processParties.find((p: any) => (p.side === 'ativo' || p.polo === 'autor') && (p.party?.document || p.establishment?.cnpj))?.party?.document || processDetails.processParties.find((p: any) => (p.side === 'ativo' || p.polo === 'autor'))?.establishment?.cnpj}
+                        </div>
+                      )}
                     </div>
 
                     {/* Polo Passivo */}
@@ -584,21 +913,11 @@ export default function Processes() {
                       <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--t1)' }}>
                         {reu}
                       </div>
-                      {reu === clientName && (
+                      {processDetails?.processParties?.find((p: any) => (p.side === 'passivo' || p.polo === 'reu') && (p.party?.document || p.establishment?.cnpj)) && (
                         <div style={{ fontSize: '11px', color: 'var(--t3)', fontFamily: 'monospace', marginTop: '2px' }}>
-                          {clientCnpj}
+                          {processDetails.processParties.find((p: any) => (p.side === 'passivo' || p.polo === 'reu') && (p.party?.document || p.establishment?.cnpj))?.party?.document || processDetails.processParties.find((p: any) => (p.side === 'passivo' || p.polo === 'reu'))?.establishment?.cnpj}
                         </div>
                       )}
-                    </div>
-
-                    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--line-subtle)' }}>
-                      <button 
-                        className={`${styles.btnS} ${styles.ghost}`} 
-                        style={{ width: '100%', justifyContent: 'center' }}
-                        onClick={() => setActiveTab('parties')}
-                      >
-                        Ver todas as partes e advogados →
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -964,6 +1283,59 @@ export default function Processes() {
       </div>
 
       <div className={styles.pageContent}>
+        {/* SYNC TRACKER BANNER */}
+        {syncStatus && syncStatus.status !== 'none' && (
+          <div style={{ 
+            background: syncStatus.status === 'running' ? 'linear-gradient(90deg, #1e3a8a, #2563eb)' : syncStatus.status === 'success' ? 'linear-gradient(90deg, #064e3b, #047857)' : 'linear-gradient(90deg, #7f1d1d, #b91c1c)', 
+            color: '#fff', 
+            padding: '0.85rem 1.5rem', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '1rem', 
+            borderRadius: '10px', 
+            marginBottom: '1.25rem', 
+            border: `1px solid ${syncStatus.status === 'running' ? 'rgba(59, 130, 246, 0.5)' : syncStatus.status === 'success' ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'}`, 
+            boxShadow: `0 4px 15px ${syncStatus.status === 'running' ? 'rgba(37, 99, 235, 0.25)' : syncStatus.status === 'success' ? 'rgba(4, 120, 87, 0.25)' : 'rgba(185, 28, 28, 0.25)'}`
+          }}>
+            {syncStatus.status === 'running' ? (
+              <Loader2 size={24} className="animate-spin" />
+            ) : syncStatus.status === 'success' ? (
+              <CheckCircle size={24} color="#34d399" />
+            ) : (
+              <AlertCircle size={24} color="#f87171" />
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', letterSpacing: '-0.2px' }}>
+                {syncStatus.status === 'running' ? 'Sincronização em Andamento' : syncStatus.status === 'success' ? 'Última Sincronização Concluída' : 'Erro na Última Sincronização'}
+              </div>
+              <div style={{ fontSize: '0.8rem', opacity: 0.9, marginTop: '2px' }}>
+                {syncStatus.status === 'running' 
+                  ? 'Buscando processos e andamentos nos tribunais (DataJud/DJEN). Pode continuar navegando, os resultados aparecerão aqui.'
+                  : `Finalizada em ${new Date(syncStatus.finishedAt || syncStatus.startedAt).toLocaleString('pt-BR')}.`}
+              </div>
+            </div>
+              <button 
+                onClick={() => setIsSyncSummaryOpen(true)}
+                style={{ 
+                  background: 'rgba(255,255,255,0.15)', 
+                  border: 'none', 
+                  color: '#fff', 
+                  padding: '6px 14px', 
+                  borderRadius: '6px', 
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  transition: 'background 0.2s',
+                  marginLeft: 'auto'
+                }}
+                onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+                onMouseOut={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+              >
+                Histórico de Sincronizações
+              </button>
+          </div>
+        )}
+
         {/* Banner de Filtro de Cliente Ativo */}
         {clientIdParam && (
           <div style={{ 
@@ -1006,33 +1378,262 @@ export default function Processes() {
           </div>
         )}
 
-        {/* Barra de Filtros */}
-        <div className={styles.fbar}>
-          <div className={styles.fsearch}>
-            <Search size={13} color="#484f58" />
-            <input 
-              type="text" 
-              placeholder="Buscar por número CNJ, tribunal, assunto ou empresa..." 
-              value={searchTerm}
-              onChange={e => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-            />
+        {/* Painel Avançado de Filtros e Busca Multi-critério */}
+        <div className={styles.filterSection}>
+          {/* Linha 1: Filtros Rápidos (Pills) e Contador */}
+          <div className={styles.quickFiltersRow}>
+            <div className={styles.pillsContainer}>
+              <button 
+                className={`${styles.pillBtn} ${quickPill === 'all' ? styles.pillActive : ''}`}
+                onClick={() => { setQuickPill('all'); setCurrentPage(1); }}
+              >
+                Todos
+                <span className={styles.pillCount}>{quickCounts.all}</span>
+              </button>
+              <button 
+                className={`${styles.pillBtn} ${quickPill === 'active' ? styles.pillActive : ''}`}
+                onClick={() => { setQuickPill(quickPill === 'active' ? 'all' : 'active'); setCurrentPage(1); }}
+              >
+                <span className={styles.dot} style={{ background: '#3fb950' }}></span>
+                Ativos
+                <span className={styles.pillCount}>{quickCounts.active}</span>
+              </button>
+              <button 
+                className={`${styles.pillBtn} ${quickPill === 'trabalhista' ? styles.pillActive : ''}`}
+                onClick={() => { setQuickPill(quickPill === 'trabalhista' ? 'all' : 'trabalhista'); setCurrentPage(1); }}
+              >
+                <Briefcase size={12} />
+                Trabalhistas
+                <span className={styles.pillCount}>{quickCounts.trabalhista}</span>
+              </button>
+              <button 
+                className={`${styles.pillBtn} ${quickPill === 'civel' ? styles.pillActive : ''}`}
+                onClick={() => { setQuickPill(quickPill === 'civel' ? 'all' : 'civel'); setCurrentPage(1); }}
+              >
+                <Scale size={12} />
+                Cíveis / Outros
+                <span className={styles.pillCount}>{quickCounts.civel}</span>
+              </button>
+              <button 
+                className={`${styles.pillBtn} ${quickPill === 'with_mov' ? styles.pillActive : ''}`}
+                onClick={() => { setQuickPill(quickPill === 'with_mov' ? 'all' : 'with_mov'); setCurrentPage(1); }}
+              >
+                <Layers size={12} />
+                Com Movimentações
+                <span className={styles.pillCount}>{quickCounts.with_mov}</span>
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {activeFilterCount > 0 && (
+                <button 
+                  className={styles.clearBtn}
+                  onClick={handleClearAllFilters}
+                  title="Limpar todos os filtros aplicados"
+                >
+                  <RotateCcw size={12} />
+                  Limpar Filtros ({activeFilterCount})
+                </button>
+              )}
+            </div>
           </div>
-          <select 
-            className={styles.fsel} 
-            value={statusFilter} 
-            onChange={e => {
-              setStatusFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-          >
-            <option value="all">Todos os status</option>
-            <option value="active">Ativos</option>
-            <option value="suspended">Suspensos</option>
-            <option value="archived">Arquivados</option>
-          </select>
+
+          {/* Linha 2: Barra de Busca Principal, Status, Ordenação e Toggle Avançado */}
+          <div className={styles.mainFilterBar}>
+            <div className={styles.mainSearchInput}>
+              <Search size={14} color="#8b949e" />
+              <input 
+                type="text" 
+                placeholder="Buscar por nº CNJ, código #PRC, empresa, autor, CNPJ, vara ou assunto..." 
+                value={searchTerm}
+                onChange={e => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+              />
+              {searchTerm && (
+                <button 
+                  onClick={() => setSearchTerm('')} 
+                  style={{ background: 'none', border: 'none', color: 'var(--t3)', cursor: 'pointer', padding: '2px', display: 'flex' }}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            <div className={styles.filterActionBtns}>
+              {/* Filtro de Status */}
+              <select 
+                className={styles.filterSelect} 
+                style={{ width: '140px' }}
+                value={statusFilter} 
+                onChange={e => {
+                  setStatusFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+              >
+                <option value="all">Status: Todos</option>
+                <option value="active">🟢 Ativos</option>
+                <option value="suspended">🟡 Suspensos</option>
+                <option value="archived">⚪ Arquivados</option>
+              </select>
+
+              {/* Ordenação */}
+              <select 
+                className={styles.filterSelect}
+                style={{ width: '170px' }}
+                value={sortBy}
+                onChange={e => {
+                  setSortBy(e.target.value);
+                  setCurrentPage(1);
+                }}
+              >
+                <option value="recent">🕒 Mais Recentes</option>
+                <option value="oldest">🕒 Mais Antigos</option>
+                <option value="value_desc">💰 Maior Valor</option>
+                <option value="value_asc">💰 Menor Valor</option>
+                <option value="cnj_asc">🔢 Número CNJ (A-Z)</option>
+                <option value="client_asc">🏢 Empresa (A-Z)</option>
+              </select>
+
+              {/* Botão de Filtros Avançados */}
+              <button 
+                className={`${styles.advFilterToggle} ${isAdvFilterOpen ? styles.open : ''}`}
+                onClick={() => setIsAdvFilterOpen(prev => !prev)}
+              >
+                <SlidersHorizontal size={13} />
+                Filtros Avançados
+                {activeFilterCount > 0 && (
+                  <span className={styles.activeFilterBadge}>{activeFilterCount}</span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Linha 3: Grade de Filtros Avançados (Expansível) */}
+          {isAdvFilterOpen && (
+            <div className={styles.advancedFilterPanel}>
+              {/* Filtro por Tribunal */}
+              <div className={styles.filterField}>
+                <label className={styles.filterFieldLabel}>Tribunal / Corte</label>
+                <select 
+                  className={styles.filterSelect}
+                  value={tribunalFilter}
+                  onChange={e => {
+                    setTribunalFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Todos os Tribunais</option>
+                  {distinctTribunals.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro por Cliente / Empresa */}
+              <div className={styles.filterField}>
+                <label className={styles.filterFieldLabel}>Empresa / Cliente</label>
+                <select 
+                  className={styles.filterSelect}
+                  value={clientFilter}
+                  onChange={e => {
+                    setClientFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Todas as Empresas</option>
+                  {distinctClients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Filtro por Ramo da Justiça */}
+              <div className={styles.filterField}>
+                <label className={styles.filterFieldLabel}>Ramo da Justiça</label>
+                <select 
+                  className={styles.filterSelect}
+                  value={justiceTypeFilter}
+                  onChange={e => {
+                    setJusticeTypeFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Todos os Ramos</option>
+                  <option value="trabalhista">Justiça do Trabalho (TRT/TST)</option>
+                  <option value="civel">Justiça Estadual / Cível (TJ)</option>
+                  <option value="federal">Justiça Federal (TRF/JF)</option>
+                </select>
+              </div>
+
+              {/* Filtro por Movimentações */}
+              <div className={styles.filterField}>
+                <label className={styles.filterFieldLabel}>Histórico de Eventos</label>
+                <select 
+                  className={styles.filterSelect}
+                  value={movementsFilter}
+                  onChange={e => {
+                    setMovementsFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Qualquer Quantidade</option>
+                  <option value="with_mov">Com Movimentações Registradas</option>
+                  <option value="no_mov">Sem Movimentações</option>
+                </select>
+              </div>
+
+              {/* Filtro por Valor da Causa */}
+              <div className={styles.filterField}>
+                <label className={styles.filterFieldLabel}>Faixa de Valor da Causa</label>
+                <select 
+                  className={styles.filterSelect}
+                  value={valueFilter}
+                  onChange={e => {
+                    setValueFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value="all">Qualquer Valor</option>
+                  <option value="under_20k">Até R$ 20.000,00</option>
+                  <option value="20k_100k">R$ 20.000,00 a R$ 100.000,00</option>
+                  <option value="over_100k">Acima de R$ 100.000,00</option>
+                </select>
+              </div>
+
+              {/* Filtro por Autor / Parte Contrária */}
+              <div className={styles.filterField}>
+                <label className={styles.filterFieldLabel}>Autor (Polo Ativo)</label>
+                <input 
+                  type="text"
+                  className={styles.filterSelect}
+                  placeholder="Nome ou documento do autor..."
+                  value={authorSearch}
+                  onChange={e => {
+                    setAuthorSearch(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Rodapé do Painel de Filtros com Sumário */}
+          <div className={styles.filterStatsRow}>
+            <div>
+              Exibindo <strong>{filteredProcesses.length}</strong> de <strong>{processes?.length || 0}</strong> processos
+              {activeFilterCount > 0 && <span style={{ color: 'var(--blue)', marginLeft: '6px' }}>({activeFilterCount} filtro(s) ativo(s))</span>}
+            </div>
+            {filteredProcesses.length === 0 && (processes?.length || 0) > 0 && (
+              <button 
+                onClick={handleClearAllFilters}
+                style={{ background: 'none', border: 'none', color: 'var(--blue)', cursor: 'pointer', fontSize: '11.5px', textDecoration: 'underline' }}
+              >
+                Nenhum resultado com os filtros atuais. Clique aqui para resetar.
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabela de Processos */}
@@ -1044,11 +1645,12 @@ export default function Processes() {
                   <th style={{ width: '110px' }}>Código</th>
                   <th>Número CNJ</th>
                   <th>Empresa Monitorada</th>
-                  <th>Parte Contrária (Autor)</th>
+                  <th>Parte Contrária</th>
                   <th>Tribunal</th>
                   <th>Assunto / Natureza</th>
                   <th style={{ textAlign: 'center' }}>Eventos</th>
-                  <th>Última Sync</th>
+                  <th>Abertura</th>
+                  <th>Última Ação</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -1056,7 +1658,14 @@ export default function Processes() {
                 {paginatedProcesses?.map((proc: any) => {
                   const client = proc.processParties?.find((p: any) => p.client)?.client || proc.processParties?.[0]?.client;
                   const est = proc.processParties?.find((p: any) => p.establishment)?.establishment || proc.processParties?.[0]?.establishment;
-                  const authorParty = proc.processParties?.find((p: any) => p.polo === 'autor' || p.side === 'ativo')?.party;
+                  const isClientAuthor = proc.processParties?.some((p: any) => 
+                    (p.client || p.establishment) && (p.polo === 'autor' || p.side === 'ativo')
+                  );
+                  const adversaryParty = proc.processParties?.find((p: any) => 
+                    isClientAuthor 
+                      ? (p.polo === 'reu' || p.side === 'passivo')
+                      : (p.polo === 'autor' || p.side === 'ativo')
+                  )?.party;
 
                   return (
                     <tr 
@@ -1089,19 +1698,19 @@ export default function Processes() {
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--t1)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          {authorParty?.name || 'Autor da Ação'}
-                          {authorParty?.enrichmentSource === 'djen_cnj' ? (
+                          {adversaryParty?.name || 'Parte Contrária'}
+                          {adversaryParty?.enrichmentSource === 'djen_cnj' ? (
                             <span className={`${styles.tag} ${styles.tGreen}`} style={{ fontSize: '9px', padding: '1px 4px' }}>
                               DJEN
                             </span>
-                          ) : authorParty?.isMasked ? (
+                          ) : adversaryParty?.isMasked ? (
                             <span className={`${styles.tag} ${styles.tGold}`} style={{ fontSize: '9px', padding: '1px 4px' }}>
                               LGPD
                             </span>
                           ) : null}
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--t3)', fontFamily: 'monospace' }}>
-                          {authorParty?.document ? `CPF: ${authorParty.document}` : 'Pessoa Física'}
+                          {adversaryParty?.document ? (adversaryParty.document.length > 14 ? `CNPJ: ${adversaryParty.document}` : `CPF: ${adversaryParty.document}`) : 'Pessoa Física / Jurídica'}
                         </div>
                       </td>
                       <td>
@@ -1121,7 +1730,14 @@ export default function Processes() {
                       </td>
                       <td>
                         <span className={styles.mono} style={{ fontSize: '11px', color: 'var(--t3)' }}>
-                          {proc.lastSyncAt ? new Date(proc.lastSyncAt).toLocaleDateString('pt-BR') : 'Hoje'}
+                          {proc.distributionDate 
+                            ? new Date(proc.distributionDate).toLocaleDateString('pt-BR') 
+                            : (proc.processNumber?.replace(/\D/g, '').length === 20 ? `Ano ${proc.processNumber.replace(/\D/g, '').substring(9, 13)}` : '-')}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={styles.mono} style={{ fontSize: '11px', color: 'var(--t3)' }}>
+                          {proc.movements?.[0]?.eventDate ? new Date(proc.movements[0].eventDate).toLocaleDateString('pt-BR') : '-'}
                         </span>
                       </td>
                       <td>
@@ -1232,6 +1848,162 @@ export default function Processes() {
           )}
         </div>
       </div>
+      {/* MODAL: HISTÓRICO DE SINCRONIZAÇÃO */}
+      {isSyncSummaryOpen && (
+        <div className={styles.docModalOverlay} onClick={() => setIsSyncSummaryOpen(false)}>
+          <div className={styles.docModalContent} style={{ maxWidth: '800px' }} onClick={e => e.stopPropagation()}>
+            <div className={styles.docModalHeader}>
+              <div className={styles.docModalHeaderLeft}>
+                <RefreshCw size={18} color="var(--blue)" />
+                <h3 className={styles.docModalTitle}>
+                  Histórico de Sincronizações
+                </h3>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setIsSyncSummaryOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--t3)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className={styles.docModalBody} style={{ padding: 0 }}>
+              {isLoadingSyncHistory ? (
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--t2)' }}>
+                  <Loader2 size={24} className={styles.spin} style={{ margin: '0 auto 1rem', display: 'block' }} />
+                  Carregando histórico...
+                </div>
+              ) : syncHistory && syncHistory.length > 0 ? (
+                <div className={styles.tableWrapper} style={{ maxHeight: '400px', overflowY: 'auto', border: 'none', borderRadius: 0 }}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Data/Hora Início</th>
+                        <th>Data/Hora Fim</th>
+                        <th>Status</th>
+                        <th style={{ textAlign: 'center' }}>Novos Proc.</th>
+                        <th style={{ textAlign: 'center' }}>Novos Andam.</th>
+                        <th>Disparado Por</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {syncHistory.map((job: any) => (
+                        <tr 
+                          key={job.id} 
+                          onClick={() => {
+                            if (job.status === 'success') {
+                              setSelectedJobForDetails(job);
+                            }
+                          }}
+                          style={{ cursor: job.status === 'success' ? 'pointer' : 'default' }}
+                          title={job.status === 'success' ? 'Clique para ver os detalhes' : ''}
+                        >
+                          <td>{new Date(job.startedAt).toLocaleString('pt-BR')}</td>
+                          <td>{job.finishedAt ? new Date(job.finishedAt).toLocaleString('pt-BR') : '-'}</td>
+                          <td>
+                            {job.status === 'success' ? (
+                              <span style={{ color: '#34d399', fontWeight: 600 }}>Sucesso</span>
+                            ) : job.status === 'running' ? (
+                              <span style={{ color: '#60a5fa', fontWeight: 600 }}>Buscando...</span>
+                            ) : (
+                              <span style={{ color: '#f87171', fontWeight: 600 }} title={job.errorMessage || ''}>Erro</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 600, color: job.newProcessesFound > 0 ? '#34d399' : 'inherit' }}>{job.newProcessesFound || 0}</td>
+                          <td style={{ textAlign: 'center', fontWeight: 600, color: job.newMovementsFound > 0 ? '#34d399' : 'inherit' }}>{job.newMovementsFound || 0}</td>
+                          <td>{job.triggeredBy || 'Sistema'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--t2)' }}>
+                  Nenhum histórico encontrado para este cliente.
+                </div>
+              )}
+            </div>
+            <div className={styles.docModalFooter}>
+              <button className={`${styles.btn} ${styles.outline}`} onClick={() => refetchSyncHistory()}>
+                <RefreshCw size={16} /> Atualizar
+              </button>
+              <button className={`${styles.btnS} ${styles.primary}`} onClick={() => setIsSyncSummaryOpen(false)}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DETALHES DO JOB */}
+      {selectedJobForDetails && (
+        <div className={styles.docModalOverlay} onClick={() => setSelectedJobForDetails(null)}>
+          <div className={styles.docModalContent} style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+            <div className={styles.docModalHeader}>
+              <div className={styles.docModalHeaderLeft}>
+                <Sparkles size={18} color="var(--blue)" />
+                <h3 className={styles.docModalTitle}>
+                  Detalhes da Sincronização
+                </h3>
+              </div>
+              <button className={styles.closeBtn} onClick={() => setSelectedJobForDetails(null)} style={{ background: 'transparent', border: 'none', color: 'var(--t3)', cursor: 'pointer' }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className={styles.docModalMetaBar}>
+              <div>Início: <strong style={{ color: 'var(--t1)' }}>{new Date(selectedJobForDetails.startedAt).toLocaleString('pt-BR')}</strong></div>
+              {selectedJobForDetails.finishedAt && (
+                <div>Fim: <strong style={{ color: 'var(--t1)' }}>{new Date(selectedJobForDetails.finishedAt).toLocaleString('pt-BR')}</strong></div>
+              )}
+            </div>
+            <div className={styles.docModalBody} style={{ padding: 0 }}>
+              {isLoadingJobDetails ? (
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--t2)' }}>
+                  <Loader2 size={24} className={styles.spin} style={{ margin: '0 auto 1rem', display: 'block' }} />
+                  Carregando lista detalhada...
+                </div>
+              ) : syncJobDetails && syncJobDetails.length > 0 ? (
+                <>
+                  {syncJobDetails.length > 200 && (
+                    <div style={{ padding: '12px 20px', background: 'rgba(234, 179, 8, 0.1)', color: '#eab308', borderBottom: '1px solid rgba(234, 179, 8, 0.2)', fontSize: '12px' }}>
+                      <strong>Aviso:</strong> Apenas os primeiros 200 registros estão sendo exibidos por questão de desempenho (Total encontrado: {syncJobDetails.length}).
+                    </div>
+                  )}
+                  <div className={styles.tableWrapper} style={{ border: 'none', borderRadius: 0 }}>
+                    <table className={styles.table}>
+                      <thead>
+                        <tr>
+                          <th>Número do Processo</th>
+                          <th>Tipo de Atualização</th>
+                          <th>Descrição / Detalhe</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {syncJobDetails.slice(0, 200).map((det: any, i: number) => (
+                          <tr key={i}>
+                            <td className={styles.mono} style={{ color: 'var(--blue)' }}>{det.processNumber}</td>
+                            <td>
+                              {det.type === 'process' ? (
+                                <span className={`${styles.tag} ${styles.tGreen}`}>Processo Novo</span>
+                              ) : (
+                                <span className={`${styles.tag} ${styles.tPurple}`}>Novo Andamento</span>
+                              )}
+                            </td>
+                            <td style={{ fontSize: '12px', color: 'var(--t2)' }}>
+                              {det.type === 'process' ? 'Processo incluído na base' : (det.description || '-')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--t2)' }}>
+                  Nenhum processo ou andamento novo foi encontrado nesta sincronização.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

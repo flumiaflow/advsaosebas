@@ -28,6 +28,7 @@ import importRoutes from './routes/importRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import settingsRoutes from './routes/settingsRoutes';
+import systemSettingsRoutes from './routes/systemSettingsRoutes';
 import partyRoutes from './routes/partyRoutes';
 
 // Load environment variables
@@ -36,8 +37,23 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+const defaultOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'https://juriswatch.31.97.83.42.sslip.io',
+  'http://juriswatch.31.97.83.42.sslip.io'
+];
+const envOrigins = process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()) : [];
+const allowedOrigins = [...defaultOrigins, ...envOrigins];
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin) || origin.includes('sslip.io') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    return callback(null, true); // Permissive in initial production rollout
+  },
   credentials: true
 }));
 app.use(cookieParser());
@@ -48,6 +64,7 @@ app.use(passport.initialize());
 app.use('/api/auth', authRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/backoffice/tenants', tenantRoutes);
+app.use('/api/backoffice/settings', systemSettingsRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/establishments', establishmentRoutes);
 app.use('/api/sync', syncRoutes);
@@ -78,9 +95,10 @@ async function bootstrap() {
     startScheduler();
     startLifecycleJobs();
 
-    // Start server explicitly on IPv4 to fix Vite Proxy ECONNREFUSED
-    const server = app.listen(PORT as number, '127.0.0.1', () => {
-      console.log(`🚀 JurisWatch API is running on http://127.0.0.1:${PORT}`);
+    // Start server on 0.0.0.0
+    const host = process.env.HOST || '0.0.0.0';
+    const server = app.listen(PORT as number, host, () => {
+      console.log(`🚀 JurisWatch API is running on http://${host}:${PORT}`);
     });
 
     // Initialize WebSockets

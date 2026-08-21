@@ -1,7 +1,9 @@
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+
 export const api = axios.create({
-  baseURL: 'http://localhost:4000/api',
+  baseURL: API_BASE_URL,
   withCredentials: true
 });
 
@@ -10,6 +12,8 @@ let accessToken: string | null = null;
 export const setAccessToken = (token: string | null) => {
   accessToken = token;
 };
+
+export const getAccessToken = () => accessToken;
 
 // Injeta o access token em todas as requisições
 api.interceptors.request.use((config) => {
@@ -30,7 +34,8 @@ api.interceptors.response.use(
       console.warn('Interceptor 401 trigger for:', originalRequest.url);
       originalRequest._retry = true;
       try {
-        const { data } = await axios.post('http://localhost:4000/api/auth/refresh', {}, { withCredentials: true });
+        const refreshEndpoint = `${API_BASE_URL.replace(/\/+$/, '')}/auth/refresh`;
+        const { data } = await axios.post(refreshEndpoint, {}, { withCredentials: true });
         setAccessToken(data.accessToken);
         originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(originalRequest); // Refaz a requisição original

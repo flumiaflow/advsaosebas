@@ -5,15 +5,16 @@ export async function getUnreadNotifications(req: Request, res: Response) {
   try {
     const userId = req.user?.userId!;
 
-    const notifications = await prisma.notification.findMany({
-      where: { userId, isRead: false },
-      orderBy: { createdAt: 'desc' },
-      take: 50 // Limite pro Popover
-    });
-
-    const count = await prisma.notification.count({
-      where: { userId, isRead: false }
-    });
+    const [notifications, count] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId, isRead: false },
+        orderBy: { createdAt: 'desc' },
+        take: 30 // Popover top 30
+      }),
+      prisma.notification.count({
+        where: { userId, isRead: false }
+      })
+    ]);
 
     return res.status(200).json({ notifications, count });
   } catch (error) {

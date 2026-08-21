@@ -4,13 +4,40 @@ import { logAuditAction } from '../middlewares/auditLogger';
 
 export async function getSyncConfig(req: Request, res: Response) {
   try {
-    const tenantId = req.user?.tenantId;
+    let tenantId = req.user?.tenantId;
+    if (!tenantId && req.user?.role === 'super_admin') {
+      tenantId = req.query.tenantId ? String(req.query.tenantId) : undefined;
+      if (!tenantId) {
+        const firstTenant = await prisma.tenant.findFirst();
+        tenantId = firstTenant?.id;
+      }
+    }
     if (!tenantId) return res.status(400).json({ error: 'Tenant required' });
 
     let config = await prisma.syncConfig.findUnique({ where: { tenantId } });
     if (!config) {
+      const globalSetting = await prisma.systemSetting.findUnique({ where: { key: 'DEFAULT_SYNC_CONFIG' } });
+      const defaultSync = (globalSetting?.value as any) || {
+        daysOfWeek: [1, 2, 3, 4, 5],
+        times: ['07:00'],
+        timezone: 'America/Sao_Paulo',
+        onlyActiveClients: true,
+        tribunalTypes: [],
+        isActive: true
+      };
+
+      const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+
       config = await prisma.syncConfig.create({
-        data: { tenantId }
+        data: {
+          tenantId,
+          daysOfWeek: defaultSync.daysOfWeek || [1, 2, 3, 4, 5],
+          times: defaultSync.times || ['07:00'],
+          timezone: tenant?.timezone || defaultSync.timezone || 'America/Sao_Paulo',
+          onlyActiveClients: defaultSync.onlyActiveClients !== undefined ? defaultSync.onlyActiveClients : true,
+          tribunalTypes: defaultSync.tribunalTypes || [],
+          isActive: defaultSync.isActive !== undefined ? defaultSync.isActive : true
+        }
       });
     }
 
@@ -23,14 +50,30 @@ export async function getSyncConfig(req: Request, res: Response) {
 
 export async function updateSyncConfig(req: Request, res: Response) {
   try {
-    const tenantId = req.user?.tenantId;
+    let tenantId = req.user?.tenantId;
+    if (!tenantId && req.user?.role === 'super_admin') {
+      tenantId = req.query.tenantId ? String(req.query.tenantId) : undefined;
+      if (!tenantId) {
+        const firstTenant = await prisma.tenant.findFirst();
+        tenantId = firstTenant?.id;
+      }
+    }
     if (!tenantId) return res.status(400).json({ error: 'Tenant required' });
 
-    if (req.user?.role !== 'supervisor') {
-      return res.status(403).json({ error: 'Apenas supervisores podem editar as configurações de sincronização' });
+    if (req.user?.role !== 'supervisor' && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Apenas supervisores do escritório podem editar as configurações de sincronização' });
     }
 
     const { daysOfWeek, times, timezone, onlyActiveClients, tribunalTypes, isActive } = req.body;
+
+    // Validações
+    if (daysOfWeek !== undefined && (!Array.isArray(daysOfWeek) || daysOfWeek.some(d => typeof d !== 'number' || d < 0 || d > 6))) {
+      return res.status(400).json({ error: 'Dias da semana inválidos' });
+    }
+
+    if (times !== undefined && (!Array.isArray(times) || times.some(t => typeof t !== 'string' || !/^\d{2}:\d{2}$/.test(t)))) {
+      return res.status(400).json({ error: 'Horários inválidos (formato HH:mm)' });
+    }
 
     const updated = await prisma.syncConfig.upsert({
       where: { tenantId },
@@ -45,7 +88,7 @@ export async function updateSyncConfig(req: Request, res: Response) {
       },
       create: {
         tenantId,
-        daysOfWeek: daysOfWeek || [1,2,3,4,5],
+        daysOfWeek: daysOfWeek || [1, 2, 3, 4, 5],
         times: times || ['07:00'],
         timezone: timezone || 'America/Sao_Paulo',
         onlyActiveClients: onlyActiveClients !== undefined ? onlyActiveClients : true,
@@ -58,7 +101,10 @@ export async function updateSyncConfig(req: Request, res: Response) {
       tenantId,
       userId: req.user!.userId,
       action: 'SYNC_CONFIG_UPDATED',
-      metadata: updated
+      entityType: 'SyncConfig',
+      entityId: tenantId,
+      metadata: updated,
+      ipAddress: req.ip
     });
 
     // Also update tenant timezone if they passed a new one

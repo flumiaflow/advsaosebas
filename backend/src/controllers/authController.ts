@@ -31,14 +31,21 @@ export async function refresh(req: Request, res: Response) {
     
     let currentRole = user.role;
     let currentTenantId = user.tenantId;
+    let isImpersonating = false;
+    let originalRole = null;
 
-    if (decoded.isImpersonating) {
-      currentRole = decoded.role;
-      currentTenantId = decoded.tenantId;
+    if (decoded.isImpersonating && decoded.tenantId) {
+      const tenantExists = await prisma.tenant.findUnique({ where: { id: decoded.tenantId } });
+      if (tenantExists) {
+        currentRole = decoded.role;
+        currentTenantId = decoded.tenantId;
+        isImpersonating = true;
+        originalRole = decoded.originalRole || 'super_admin';
+      }
     }
 
     console.log('[Refresh] Generating tokens...');
-    const tokens = generateTokens(user.id, currentTenantId, currentRole, decoded.isImpersonating, decoded.originalRole);
+    const tokens = generateTokens(user.id, currentTenantId, currentRole, isImpersonating, originalRole);
     
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
@@ -56,6 +63,7 @@ export async function refresh(req: Request, res: Response) {
         email: user.email,
         role: currentRole,
         tenantId: currentTenantId,
+        mustChangePassword: user.mustChangePassword,
         isImpersonating: decoded.isImpersonating || false
       }
     });
@@ -97,18 +105,18 @@ export async function login(req: Request, res: Response) {
 
     const { accessToken, refreshToken, jti } = generateTokens(user.id, user.tenantId, user.role);
 
-    // Update last login
-    await prisma.user.update({
+    // Update last login e log de auditoria de forma assíncrona (não bloqueia resposta ao usuário)
+    prisma.user.update({
       where: { id: user.id },
       data: { lastLogin: new Date() }
-    });
+    }).catch(e => console.error('Erro ao atualizar lastLogin:', e));
 
-    await logAuditAction({
+    logAuditAction({
       tenantId: user.tenantId,
       userId: user.id,
       action: 'USER_LOGIN',
       metadata: { email: user.email }
-    });
+    }).catch(e => console.error('Erro ao registrar auditoria de login:', e));
 
     // Refresh token via httpOnly cookie per architectural plan
     res.cookie('refreshToken', refreshToken, {
@@ -125,7 +133,8 @@ export async function login(req: Request, res: Response) {
         name: user.name,
         email: user.email,
         role: user.role,
-        tenantId: user.tenantId
+        tenantId: user.tenantId,
+        mustChangePassword: user.mustChangePassword
       }
     });
   } catch (error) {
@@ -221,7 +230,7 @@ export async function forgotPassword(req: Request, res: Response) {
     }
 
     const token = require('crypto').randomUUID();
-    const tokenHash = await bcrypt.hash(token, 10);
+    const tokenHash = require('crypto').createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 2); // 2 hours valid
 
@@ -248,22 +257,16 @@ export async function resetPassword(req: Request, res: Response) {
     const { token, newPassword } = req.body;
     if (!token || !newPassword) return res.status(400).json({ error: 'Token e nova senha são obrigatórios' });
 
-    // Busca tokens não usados
-    const resetTokens = await prisma.passwordResetToken.findMany({
+    // Busca direta O(1) pelo hash SHA-256 do token
+    const tokenHash = require('crypto').createHash('sha256').update(token).digest('hex');
+
+    const matchedToken = await prisma.passwordResetToken.findFirst({
       where: {
+        tokenHash,
         usedAt: null,
         expiresAt: { gt: new Date() }
       }
     });
-
-    let matchedToken = null;
-    for (const t of resetTokens) {
-      const isMatch = await bcrypt.compare(token, t.tokenHash);
-      if (isMatch) {
-        matchedToken = t;
-        break;
-      }
-    }
 
     if (!matchedToken) {
       return res.status(400).json({ error: 'Token inválido ou expirado' });

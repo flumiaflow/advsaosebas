@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useAuth } from './useAuth';
+import { getAccessToken } from '../services/api';
 import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -18,17 +19,33 @@ export function useSocket() {
       return;
     }
 
+    const token = getAccessToken();
+    if (!token) return;
+
     // Connect to backend WS
-    const newSocket = io('http://localhost:4000', {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+    const socketBaseUrl = import.meta.env.VITE_SOCKET_URL || apiUrl.replace(/\/api\/?$/, '');
+    
+    const newSocket = io(socketBaseUrl, {
       path: '/socket.io',
-      transports: ['websocket'],
-      withCredentials: true
+      transports: ['websocket', 'polling'],
+      withCredentials: true,
+      auth: {
+        token
+      },
+      query: {
+        token
+      }
     });
 
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
       console.log('✅ WebSocket Connected');
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.warn('⚠️ WebSocket Connect Error:', err.message);
     });
 
     newSocket.on('notification:new', (payload) => {

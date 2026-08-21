@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
+import { getCache, setCache } from '../config/redis';
 
 export async function getProcesses(req: Request, res: Response) {
   try {
@@ -10,7 +11,13 @@ export async function getProcesses(req: Request, res: Response) {
     }
     if (!tenantId) return res.status(403).json({ error: 'Acesso negado' });
 
-    const { clientId } = req.query;
+    const { clientId, search, limit, offset } = req.query;
+
+    const cacheKey = `procs:${tenantId}:${clientId || 'all'}:${search || ''}:${limit || '500'}:${offset || '0'}`;
+    const cached = await getCache<any>(cacheKey);
+    if (cached) {
+      return res.status(200).json(cached);
+    }
 
     let processIds: string[] | undefined;
 
@@ -33,7 +40,27 @@ export async function getProcesses(req: Request, res: Response) {
         select: { processId: true }
       });
       processIds = parties.map(p => p.processId);
+    } else {
+      // GOLDEN RULE: Never show processes that are not explicitly linked to an active client
+      const activeClients = await prisma.client.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true }
+      });
+      const activeClientIds = activeClients.map(c => c.id);
+
+      const parties = await prisma.processParty.findMany({
+        where: {
+          tenantId,
+          isActive: true,
+          clientId: { in: activeClientIds }
+        },
+        select: { processId: true }
+      });
+      processIds = parties.map(p => p.processId);
     }
+
+    const take = limit ? Math.min(parseInt(String(limit)), 500) : 500;
+    const skip = offset ? parseInt(String(offset)) : 0;
 
     const processes = await prisma.process.findMany({
       where: {
@@ -41,17 +68,48 @@ export async function getProcesses(req: Request, res: Response) {
         ...(processIds && { id: { in: processIds } })
       },
       orderBy: { distributionDate: 'desc' },
-      include: {
+      take,
+      skip,
+      select: {
+        id: true,
+        tenantId: true,
+        processNumber: true,
+        tribunal: true,
+        justiceType: true,
+        varaOrgao: true,
+        className: true,
+        subjectMain: true,
+        subjectsExtra: true,
+        status: true,
+        distributionDate: true,
+        value: true,
+        lastSyncAt: true,
         _count: { select: { movements: true } },
         processParties: {
-          include: { client: true, establishment: true, party: true }
+          select: {
+            id: true,
+            side: true,
+            party: { select: { id: true, name: true, document: true } },
+            client: { select: { id: true, name: true } },
+            establishment: { select: { id: true, razaoSocial: true, cnpj: true } }
+          }
         },
         movements: {
           orderBy: { eventDate: 'desc' },
-          take: 1
+          take: 1,
+          select: {
+            id: true,
+            eventName: true,
+            eventDate: true,
+            description: true,
+            sourceEventId: true
+          }
         }
       }
     });
+
+    // Cache de 30 segundos
+    await setCache(cacheKey, processes, 30);
 
     return res.status(200).json(processes);
   } catch (error) {

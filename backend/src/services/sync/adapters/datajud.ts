@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { normalizeName } from '../../parties/partyService';
 
 export interface DataJudProcess {
   processNumber: string;
@@ -23,6 +24,36 @@ export interface DataJudProcess {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+const TJ_ENDPOINTS: Record<string, string> = {
+  '01': 'api_publica_tjac',
+  '02': 'api_publica_tjal',
+  '03': 'api_publica_tjap',
+  '04': 'api_publica_tjam',
+  '05': 'api_publica_tjba',
+  '06': 'api_publica_tjce',
+  '07': 'api_publica_tjdft',
+  '08': 'api_publica_tjes',
+  '09': 'api_publica_tjgo',
+  '10': 'api_publica_tjma',
+  '11': 'api_publica_tjmt',
+  '12': 'api_publica_tjms',
+  '13': 'api_publica_tjmg',
+  '14': 'api_publica_tjpa',
+  '15': 'api_publica_tjpb',
+  '16': 'api_publica_tjpr',
+  '17': 'api_publica_tjpe',
+  '18': 'api_publica_tjpi',
+  '19': 'api_publica_tjrj',
+  '20': 'api_publica_tjrn',
+  '21': 'api_publica_tjrs',
+  '22': 'api_publica_tjro',
+  '23': 'api_publica_tjrr',
+  '24': 'api_publica_tjsc',
+  '25': 'api_publica_tjse',
+  '26': 'api_publica_tjsp',
+  '27': 'api_publica_tjto',
+};
+
 export function getTribunalEndpoint(processNumber: string): string {
   const clean = processNumber.replace(/\D/g, '');
   if (clean.length < 20) return 'api_publica_tst';
@@ -30,30 +61,33 @@ export function getTribunalEndpoint(processNumber: string): string {
   const j = clean.slice(13, 14);
   const tr = clean.slice(14, 16);
 
-  if (j === '5') {
-    if (tr === '02') return 'api_publica_trt2';
-    if (tr === '09') return 'api_publica_trt9';
-    if (tr === '15') return 'api_publica_trt15';
-    if (tr === '00') return 'api_publica_tst';
-    return `api_publica_trt${parseInt(tr)}`;
-  }
+  // 8 = Justiça Estadual
   if (j === '8') {
-    if (tr === '16') return 'api_publica_tjpr';
-    if (tr === '26') return 'api_publica_tjsp';
-    if (tr === '13') return 'api_publica_tjmg';
-    if (tr === '21') return 'api_publica_tjrs';
-    if (tr === '24') return 'api_publica_tjsc';
-    if (tr === '19') return 'api_publica_tjrj';
-    return `api_publica_tj${tr}`;
+    return TJ_ENDPOINTS[tr] || `api_publica_tj${tr}`;
   }
+
+  // 5 = Justiça do Trabalho
+  if (j === '5') {
+    if (tr === '00') return 'api_publica_tst';
+    const numTr = parseInt(tr, 10);
+    return `api_publica_trt${numTr}`;
+  }
+
+  // 4 = Justiça Federal
   if (j === '4') {
-    if (tr === '04') return 'api_publica_trf4';
-    if (tr === '03') return 'api_publica_trf3';
-    if (tr === '02') return 'api_publica_trf2';
-    if (tr === '01') return 'api_publica_trf1';
-    return `api_publica_trf${parseInt(tr)}`;
+    const numTr = parseInt(tr, 10);
+    return `api_publica_trf${numTr}`;
   }
+
+  // 3 = Superior Tribunal de Justiça
   if (j === '3') return 'api_publica_stj';
+
+  // 1 = Supremo Tribunal Federal
+  if (j === '1') return 'api_publica_stf';
+
+  // 2 = Conselho Nacional de Justiça
+  if (j === '2') return 'api_publica_cnj';
+
   return 'api_publica_tst';
 }
 
@@ -139,7 +173,7 @@ function extractDetailsFromText(rawText?: string) {
   if (matchValor && matchValor[1]) {
     const cleanVal = matchValor[1].replace(/\./g, '').replace(',', '.');
     const num = parseFloat(cleanVal);
-    if (!isNaN(num)) res.value = Math.round(num * 100);
+    if (!isNaN(num)) res.value = Math.round(num); // Nominal value in Reais
   }
 
   return res;
@@ -168,69 +202,73 @@ export class DataJudAdapter {
       dataDisponibilizacao?: string;
     }>();
 
-    // 1. Descoberta no Diário Oficial Nacional (DJEN / PJe) por CNPJ
-    try {
-      console.log(`[DJEN DISCOVERY] Buscando publicações pelo CNPJ ${cleanCnpj}...`);
-      const resDoc = await axios.get(this.djenUrl, {
-        params: { numeroDocumento: cleanCnpj, itensPorPagina: 50 },
-        timeout: 8000
-      });
-      for (const it of resDoc.data?.items || []) {
-        if (it.numero_processo) {
-          const numKey = it.numero_processo.replace(/\D/g, '');
-          processMap.set(numKey, {
-            rawNum: it.numeroprocessocommascara || it.numero_processo,
-            tribunal: it.siglaTribunal || 'TJ',
-            destinatarios: (it.destinatarios || []).map((d: any) => ({ nome: d.nome, polo: d.polo })),
-            advogados: (it.destinatarioadvogados || []).map((a: any) => ({
-              nome: a.advogado?.nome,
-              oab: a.advogado?.numero_oab,
-              uf: a.advogado?.uf_oab
-            })).filter((a: any) => a.nome),
-            nomeClasse: it.nomeClasse,
-            nomeOrgao: it.nomeOrgao,
-            tipoComunicacao: it.tipoComunicacao,
-            texto: it.texto,
-            link: it.link,
-            dataDisponibilizacao: it.data_disponibilizacao
-          });
-        }
-      }
-    } catch (e: any) {
-      console.warn(`[DJEN DISCOVERY] Aviso na busca por CNPJ ${cleanCnpj}:`, e.message);
-    }
-
-    // 2. Descoberta no DJEN pelos Termos / Razão Social / Nome do Cliente
+    // 1. Descoberta no DJEN pelos Termos / Razão Social / Nome dos Estabelecimentos (CNPJs)
     for (const term of terms) {
-      if (!term || term.length < 3) continue;
+      if (!term || term.length < 5) continue;
+      // Ignora termos genéricos curtos
+      if (term.toUpperCase() === 'BOMMEISTER' || term.toUpperCase() === 'LTDA') continue;
+
       try {
-        console.log(`[DJEN DISCOVERY] Buscando publicações pelo Nome / Razão Social "${term}"...`);
-        const resTerm = await axios.get(this.djenUrl, {
-          params: { nomeParte: term, itensPorPagina: 50 },
-          timeout: 8000
-        });
-        for (const it of resTerm.data?.items || []) {
-          if (it.numero_processo) {
-            const numKey = it.numero_processo.replace(/\D/g, '');
-            if (!processMap.has(numKey)) {
-              processMap.set(numKey, {
-                rawNum: it.numeroprocessocommascara || it.numero_processo,
-                tribunal: it.siglaTribunal || 'TJ',
-                destinatarios: (it.destinatarios || []).map((d: any) => ({ nome: d.nome, polo: d.polo })),
-                advogados: (it.destinatarioadvogados || []).map((a: any) => ({
-                  nome: a.advogado?.nome,
-                  oab: a.advogado?.numero_oab,
-                  uf: a.advogado?.uf_oab
-                })).filter((a: any) => a.nome),
-                nomeClasse: it.nomeClasse,
-                nomeOrgao: it.nomeOrgao,
-                tipoComunicacao: it.tipoComunicacao,
-                texto: it.texto,
-                link: it.link,
-                dataDisponibilizacao: it.data_disponibilizacao
+        console.log(`[DJEN DISCOVERY] Buscando publicações pelo Nome / Razão Social Oficial "${term}"...`);
+        let pagina = 1;
+        let hasMore = true;
+        const maxPages = 20; // Limite de salvaguarda
+
+        while (hasMore && pagina <= maxPages) {
+          const resTerm = await axios.get(this.djenUrl, {
+            params: { nomeParte: term, itensPorPagina: 100, pagina },
+            timeout: 8000
+          });
+          
+          const items = resTerm.data?.items || [];
+          if (items.length === 0) {
+            hasMore = false;
+            break;
+          }
+
+          if (items.length < 100) {
+            hasMore = false;
+          }
+
+          for (const it of items) {
+            if (it.numero_processo) {
+              // Valida se o processo realmente contém a Razão Social da empresa nos destinatários com correspondência exata (evita homônimos como "Artefatos de Cimento e Materiais...")
+              const dests = (it.destinatarios || []).map((d: any) => ({ nome: d.nome || '', polo: d.polo }));
+              const hasMatchingRecipient = dests.some((d: any) => {
+                const dNorm = normalizeName(d.nome);
+                return terms.some(t => {
+                  const tNorm = normalizeName(t);
+                  if (tNorm.length < 5) return false;
+                  // Exige correspondência exata de início ou igualdade completa
+                  return dNorm === tNorm || dNorm.startsWith(tNorm) || tNorm.startsWith(dNorm);
+                });
               });
+
+              // Se o nome não bateu com nenhum destinatário, descarta o processo (evita falsos positivos)
+              if (!hasMatchingRecipient) continue;
+
+              const numKey = it.numero_processo.replace(/\D/g, '');
+              if (!processMap.has(numKey)) {
+                processMap.set(numKey, {
+                  rawNum: it.numeroprocessocommascara || it.numero_processo,
+                  tribunal: it.siglaTribunal || 'TJ',
+                  destinatarios: dests,
+                  advogados: (it.destinatarioadvogados || []).map((a: any) => ({
+                    nome: a.advogado?.nome,
+                    oab: a.advogado?.numero_oab,
+                    uf: a.advogado?.uf_oab
+                  })).filter((a: any) => a.nome),
+                  nomeClasse: it.nomeClasse,
+                  nomeOrgao: it.nomeOrgao,
+                  tipoComunicacao: it.tipoComunicacao,
+                  texto: it.texto,
+                  link: it.link,
+                  dataDisponibilizacao: it.data_disponibilizacao
+                });
+              }
             }
           }
+          pagina++;
         }
       } catch (e: any) {
         console.warn(`[DJEN DISCOVERY] Aviso na busca por termo "${term}":`, e.message);
@@ -250,11 +288,14 @@ export class DataJudAdapter {
           // Acrescenta os destinatários reais do DJEN às partes se não vieram do DataJud
           if (djenMeta.destinatarios.length > 0) {
             djenMeta.destinatarios.forEach(dest => {
-              const isPoloPassivo = dest.polo === 'P' || dest.nome.toUpperCase().includes('MATERIAIS') || dest.nome.toUpperCase().includes('ALIANCE') || dest.nome.toUpperCase().includes('SEBASTIAO') || dest.nome.toUpperCase().includes('BOMMEISTER');
+              let tipoPolo = 'Polo Indeterminado';
+              if (dest.polo === 'P') tipoPolo = 'Polo Passivo';
+              if (dest.polo === 'A') tipoPolo = 'Polo Ativo';
+
               if (!fullProc.parties.some(p => p.name.toUpperCase() === dest.nome.toUpperCase())) {
                 fullProc.parties.push({
                   name: dest.nome,
-                  type: isPoloPassivo ? 'Polo Passivo' : 'Polo Ativo'
+                  type: tipoPolo
                 });
               }
             });
@@ -286,8 +327,11 @@ export class DataJudAdapter {
           allResults.push(fullProc);
         } else {
           // Processo descoberto no DJEN mas ainda não indexado no Elasticsearch aberto do DataJud
-          const isPoloPassivo = (dest: { nome: string; polo?: string }) => 
-            dest.polo === 'P' || dest.nome.toUpperCase().includes('MATERIAIS') || dest.nome.toUpperCase().includes('ALIANCE') || dest.nome.toUpperCase().includes('SEBASTIAO') || dest.nome.toUpperCase().includes('BOMMEISTER');
+          const getTipoPolo = (dest: { nome: string; polo?: string }) => {
+            if (dest.polo === 'P') return 'Polo Passivo';
+            if (dest.polo === 'A') return 'Polo Ativo';
+            return 'Polo Indeterminado';
+          };
           
           const finalClasse = djenMeta.nomeClasse || parsedFromText.classe || 'Ação Judicial Eletrônica';
           const finalAssunto = parsedFromText.subject || djenMeta.nomeClasse || 'Processo Judicial Cível / Trabalhista';
@@ -305,7 +349,7 @@ export class DataJudAdapter {
             status: 'Ativo',
             parties: djenMeta.destinatarios.map(d => ({
               name: d.nome,
-              type: isPoloPassivo(d) ? 'Polo Passivo' : 'Polo Ativo'
+              type: getTipoPolo(d)
             })),
             movements: [
               {

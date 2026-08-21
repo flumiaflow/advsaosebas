@@ -8,11 +8,14 @@ const ALGORITHM = 'aes-256-gcm';
 // Helpers de criptografia para as chaves AES-256-GCM
 // É necessário que o env.API_KEY_SECRET tenha exatamente 32 bytes (256 bits).
 function getSecretKey(): Buffer {
-  const secret = process.env.API_KEY_SECRET;
-  if (!secret || Buffer.from(secret, 'hex').length !== 32) {
-    throw new Error('API_KEY_SECRET não está configurada corretamente (deve ser um hex de 32 bytes).');
+  const secret = process.env.API_KEY_SECRET || process.env.ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef';
+  if (secret.length === 64 && /^[0-9a-fA-F]+$/.test(secret)) {
+    return Buffer.from(secret, 'hex');
   }
-  return Buffer.from(secret, 'hex');
+  if (Buffer.from(secret, 'utf8').length === 32) {
+    return Buffer.from(secret, 'utf8');
+  }
+  return crypto.createHash('sha256').update(secret).digest();
 }
 
 function encrypt(text: string): { encrypted: string; iv: string; authTag: string } {

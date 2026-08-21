@@ -134,13 +134,27 @@ export interface LinkPartyParams {
 
 export async function linkPartyToProcess(params: LinkPartyParams) {
   // Verifica se o vínculo já existe para não duplicar
-  const existing = await prisma.processParty.findFirst({
-    where: {
-      processId: params.processId,
-      partyId: params.partyId,
-      tenantId: params.tenantId
-    }
-  });
+  let existing;
+  
+  if (params.establishmentId) {
+    existing = await prisma.processParty.findFirst({
+      where: {
+        processId: params.processId,
+        establishmentId: params.establishmentId,
+        tenantId: params.tenantId
+      }
+    });
+  }
+
+  if (!existing) {
+    existing = await prisma.processParty.findFirst({
+      where: {
+        processId: params.processId,
+        partyId: params.partyId,
+        tenantId: params.tenantId
+      }
+    });
+  }
 
   if (existing) {
     return prisma.processParty.update({

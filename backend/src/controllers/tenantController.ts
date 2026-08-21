@@ -56,6 +56,19 @@ export async function createTenant(req: Request, res: Response) {
     const bcrypt = require('bcrypt');
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
+    // Carregar configuração padrão de sincronização do sistema
+    const globalSetting = await prisma.systemSetting.findUnique({
+      where: { key: 'DEFAULT_SYNC_CONFIG' }
+    });
+    const defaultSync = (globalSetting?.value as any) || {
+      daysOfWeek: [1, 2, 3, 4, 5],
+      times: ['07:00'],
+      timezone: 'America/Sao_Paulo',
+      onlyActiveClients: true,
+      tribunalTypes: [],
+      isActive: true
+    };
+
     const result = await prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
         data: {
@@ -78,7 +91,20 @@ export async function createTenant(req: Request, res: Response) {
         }
       });
 
-      return { tenant, supervisor, tempPassword };
+      // Provisiona o SyncConfig herdando os padrões globais
+      const syncConfig = await tx.syncConfig.create({
+        data: {
+          tenantId: tenant.id,
+          daysOfWeek: defaultSync.daysOfWeek || [1, 2, 3, 4, 5],
+          times: defaultSync.times || ['07:00'],
+          timezone: tenant.timezone || defaultSync.timezone || 'America/Sao_Paulo',
+          onlyActiveClients: defaultSync.onlyActiveClients !== undefined ? defaultSync.onlyActiveClients : true,
+          tribunalTypes: defaultSync.tribunalTypes || [],
+          isActive: defaultSync.isActive !== undefined ? defaultSync.isActive : true
+        }
+      });
+
+      return { tenant, supervisor, syncConfig, tempPassword };
     });
 
     // TODO: Disparar e-mail com tempPassword para supervisorEmail

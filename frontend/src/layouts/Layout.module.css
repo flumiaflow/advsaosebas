@@ -173,6 +173,8 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -180,7 +182,9 @@
 .page {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
 }

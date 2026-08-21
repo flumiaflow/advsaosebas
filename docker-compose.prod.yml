@@ -1,0 +1,70 @@
+services:
+  juriswatch-redis:
+    image: redis:7-alpine
+    container_name: juriswatch-redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - juriswatch_redis_data:/data
+    networks:
+      - juriswatch-net
+
+  juriswatch-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: juriswatch-backend
+    restart: always
+    env_file:
+      - .env.prod
+    ports:
+      - "4080:4000"
+    networks:
+      - juriswatch-net
+      - dokploy-network
+    depends_on:
+      - juriswatch-redis
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.juriswatch-api-http.rule=Host(`api-juriswatch.31.97.83.42.sslip.io`)"
+      - "traefik.http.routers.juriswatch-api-http.entrypoints=web"
+      - "traefik.http.routers.juriswatch-api-https.rule=Host(`api-juriswatch.31.97.83.42.sslip.io`)"
+      - "traefik.http.routers.juriswatch-api-https.entrypoints=websecure"
+      - "traefik.http.routers.juriswatch-api-https.tls=true"
+      - "traefik.http.routers.juriswatch-api-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.juriswatch-api.loadbalancer.server.port=4000"
+
+  juriswatch-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: https://api-juriswatch.31.97.83.42.sslip.io/api
+        VITE_SOCKET_URL: https://api-juriswatch.31.97.83.42.sslip.io
+    container_name: juriswatch-frontend
+    restart: always
+    ports:
+      - "5180:80"
+    networks:
+      - juriswatch-net
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.juriswatch-front-http.rule=Host(`juriswatch.31.97.83.42.sslip.io`)"
+      - "traefik.http.routers.juriswatch-front-http.entrypoints=web"
+      - "traefik.http.routers.juriswatch-front-https.rule=Host(`juriswatch.31.97.83.42.sslip.io`)"
+      - "traefik.http.routers.juriswatch-front-https.entrypoints=websecure"
+      - "traefik.http.routers.juriswatch-front-https.tls=true"
+      - "traefik.http.routers.juriswatch-front-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.juriswatch-front.loadbalancer.server.port=80"
+
+volumes:
+  juriswatch_redis_data:
+
+networks:
+  juriswatch-net:
+    driver: bridge
+  dokploy-network:
+    external: true

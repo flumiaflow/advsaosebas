@@ -10,9 +10,22 @@ const prisma = new PrismaClient();
 const QUEUE_NAME = 'SyncQueue';
 
 // We need a raw connection object for BullMQ
+let redisHost = process.env.REDIS_HOST || '127.0.0.1';
+let redisPort = parseInt(process.env.REDIS_PORT || '6379');
+
+if (process.env.REDIS_URL) {
+  try {
+    const parsed = new URL(process.env.REDIS_URL);
+    if (parsed.hostname) redisHost = parsed.hostname;
+    if (parsed.port) redisPort = parseInt(parsed.port);
+  } catch (e) {
+    // Ignore URL parse errors
+  }
+}
+
 const redisConnection = {
-  host: process.env.REDIS_HOST || '127.0.0.1',
-  port: parseInt(process.env.REDIS_PORT || '6379'),
+  host: redisHost,
+  port: redisPort,
 };
 
 const useRedis = process.env.NO_REDIS !== 'true' && process.env.REDIS_ENABLED === 'true';
@@ -53,7 +66,7 @@ export async function handleSyncJob(job: any) {
         tenantId,
         clientId,
         triggeredBy,
-        type: 'MANUAL',
+        type: triggeredBy === 'system' ? 'AUTO' : 'MANUAL',
         status: 'running'
       }
     });
@@ -67,6 +80,7 @@ export async function handleSyncJob(job: any) {
   let newProcessesCount = 0;
   let newMovementsCount = 0;
   let partialErrors = 0;
+  const syncDetails: Array<{ processNumber: string; isNew: boolean; type: 'process' | 'movement'; description?: string }> = [];
 
   try {
     // 1. Busca os dados do cliente e todos os CNPJs ativos
@@ -76,19 +90,54 @@ export async function handleSyncJob(job: any) {
     });
 
     const establishments = client?.establishments || [];
-    const clientTerms = Array.from(new Set([
-      client?.name,
-      client?.fantasyName,
-      ...establishments.map(e => e.razaoSocial),
-      ...establishments.map(e => e.fantasyName)
-    ].filter(Boolean))) as string[];
+    
+    // Auto-enriquece estabelecimentos cujas razões sociais não foram buscadas
+    const { lookupCompanyByCnpj, generateCompanySearchTerms } = await import('../cnpjLookup');
+    for (const est of establishments) {
+      if (!est.razaoSocial || est.razaoSocial === client?.name) {
+        const info = await lookupCompanyByCnpj(est.cnpj);
+        if (info && info.razaoSocial) {
+          est.razaoSocial = info.razaoSocial;
+          if (info.fantasyName) est.fantasyName = info.fantasyName;
+          await prisma.establishment.update({
+            where: { id: est.id },
+            data: {
+              razaoSocial: info.razaoSocial,
+              fantasyName: info.fantasyName || est.fantasyName
+            }
+          }).catch(() => {});
+        }
+      }
+    }
 
     for (const est of establishments) {
       try {
-        // 2. Busca automatizada multi-tribunais via DJEN + DataJud
-        const processes = await adapter.fetchByCnpjAndTerms(est.cnpj, clientTerms);
+        const specificTerms = generateCompanySearchTerms(est.razaoSocial, est.fantasyName);
+
+        // 2. Busca automatizada multi-tribunais via DJEN + DataJud com termos reais da empresa
+        const processes = await adapter.fetchByCnpjAndTerms(est.cnpj, specificTerms);
         
         for (const p of processes) {
+          // Pre-validação de Falso Positivo (LGPD e Isolamento)
+          let isFalsePositive = true;
+          if (p.parties && Array.isArray(p.parties)) {
+            for (const rawParty of p.parties) {
+              const normPartyName = rawParty.name.toUpperCase();
+              const matchDoc = !!(rawParty.document && rawParty.document.replace(/\D/g, '') === est.cnpj.replace(/\D/g, ''));
+              const matchName = !!(est.razaoSocial && normPartyName.includes(est.razaoSocial.toUpperCase()));
+              const matchFantasy = !!(est.fantasyName && normPartyName.includes(est.fantasyName.toUpperCase()));
+              if (matchDoc || matchName || matchFantasy) {
+                isFalsePositive = false;
+                break;
+              }
+            }
+          }
+
+          if (isFalsePositive) {
+            console.log(`[WORKER] Descartando Falso Positivo: Processo ${p.processNumber} não pertence ao CNPJ ${est.cnpj}`);
+            continue;
+          }
+
           // 3. Upsert do Processo
           const processRecord = await prisma.process.upsert({
             where: {
@@ -125,36 +174,32 @@ export async function handleSyncJob(job: any) {
           // Se acabou de ser criado, não existia antes. 
           if (processRecord.firstSeenAt?.getTime() === processRecord.lastSyncAt?.getTime()) {
             newProcessesCount++;
+            syncDetails.push({
+              processNumber: p.processNumber,
+              isNew: true,
+              type: 'process'
+            });
           }
 
-          // 4. Cria e vincula a Parte do Estabelecimento do Cliente
-          const clientParty = await findOrCreateParty(tenantId, {
-            name: est.razaoSocial || client?.name || `Empresa CNPJ ${est.cnpj}`,
-            document: est.cnpj,
-            documentType: 'cnpj',
-            type: 'pessoa_juridica',
-            isMasked: false,
-            enrichmentSource: 'datajud'
-          });
+          // 4. Cria e vincula as partes reais retornadas pelo DataJud / DJEN
+          let matchedClientPartyInParties = false;
 
-          await linkPartyToProcess({
-            processId: processRecord.id,
-            partyId: clientParty.id,
-            tenantId,
-            clientId,
-            establishmentId: est.id,
-            polo: 'reu',
-            side: 'passivo',
-            isPrimary: true
-          });
-
-          // Vincula as demais partes retornadas pelo DataJud
           if (p.parties && Array.isArray(p.parties)) {
             for (const rawParty of p.parties) {
               const isAuthor = rawParty.type?.toLowerCase().includes('ativo') || rawParty.type?.toLowerCase().includes('autor');
+              const normPartyName = rawParty.name.toUpperCase();
+              
+              const matchDoc = !!(rawParty.document && rawParty.document.replace(/\D/g, '') === est.cnpj.replace(/\D/g, ''));
+              const matchName = !!(est.razaoSocial && normPartyName.includes(est.razaoSocial.toUpperCase()));
+              const matchFantasy = !!(est.fantasyName && normPartyName.includes(est.fantasyName.toUpperCase()));
+              
+              const isClientMatch = matchDoc || matchName || matchFantasy;
+
               const partyEntity = await findOrCreateParty(tenantId, {
                 name: rawParty.name,
-                type: rawParty.name.includes('LTDA') || rawParty.name.includes('S.A.') ? 'pessoa_juridica' : 'pessoa_fisica',
+                document: isClientMatch ? est.cnpj : undefined,
+                documentType: isClientMatch ? 'cnpj' : undefined,
+                type: rawParty.name.includes('LTDA') || rawParty.name.includes('S.A.') || rawParty.name.includes('EIRELI') || rawParty.name.includes('ME') ? 'pessoa_juridica' : 'pessoa_fisica',
                 enrichmentSource: 'datajud'
               });
 
@@ -162,11 +207,21 @@ export async function handleSyncJob(job: any) {
                 processId: processRecord.id,
                 partyId: partyEntity.id,
                 tenantId,
+                clientId: isClientMatch ? clientId : null,
+                establishmentId: isClientMatch ? est.id : null,
                 polo: isAuthor ? 'autor' : 'reu',
-                side: isAuthor ? 'ativo' : 'passivo'
+                side: isAuthor ? 'ativo' : 'passivo',
+                isPrimary: isClientMatch
               });
+
+              if (isClientMatch) {
+                matchedClientPartyInParties = true;
+              }
             }
           }
+
+          // Bloqueio de Fallback (removido) para evitar exposição de falsos positivos (LGPD).
+          // Se o processo chegou até aqui, uma das partes retornadas já deu 'isClientMatch = true'.
 
           // 5. Aciona o Enriquecimento Gratuito via DJEN (Diário de Justiça Eletrônico Nacional)
           enrichProcessFromDjen(processRecord.processNumber, tenantId, processRecord.id).catch(djenErr => {
@@ -191,6 +246,13 @@ export async function handleSyncJob(job: any) {
                 }
               });
               newMovementsCount++;
+              
+              syncDetails.push({
+                processNumber: processRecord.processNumber,
+                isNew: false,
+                type: 'movement',
+                description: mov.name
+              });
               
               // 6. Criar NOTIFICAÇÃO (Central de Notificações)
               // Dispara para todos os usuários que têm acesso ao Cliente
@@ -251,9 +313,35 @@ export async function handleSyncJob(job: any) {
         clientsProcessed: establishments.length,
         newProcessesFound: newProcessesCount,
         newMovementsFound: newMovementsCount,
-        partialErrorCount: partialErrors
+        partialErrorCount: partialErrors,
+        details: syncDetails
       }
     });
+
+    // Invalida caches do Redis relacionados aos processos e métricas
+    try {
+      const { invalidateCachePattern } = await import('../../config/redis');
+      await invalidateCachePattern(`procs:${tenantId}:*`);
+      await invalidateCachePattern(`dash:${tenantId}:*`);
+      await invalidateCachePattern(`clients:${tenantId}:*`);
+    } catch (e) {}
+
+    // Notificar o front-end sobre o encerramento do job assíncrono
+    try {
+      const io = getIO();
+      io.to(`tenant:${tenantId}`).emit('sync:completed', {
+        clientId,
+        success: true,
+        summary: {
+          establishmentsCount: establishments.length,
+          newProcessesCount,
+          newMovementsCount,
+          partialErrors
+        }
+      });
+    } catch (socketErr) {
+      console.warn('[WORKER] Falha ao notificar websocket:', socketErr);
+    }
 
     return {
       success: true,
@@ -274,6 +362,15 @@ export async function handleSyncJob(job: any) {
         errorMessage: globalError.message
       }
     });
+
+    try {
+      const io = getIO();
+      io.to(`tenant:${tenantId}`).emit('sync:completed', {
+        clientId,
+        success: false,
+        error: globalError.message
+      });
+    } catch (socketErr) {}
 
     if (triggeredBy === 'system') {
       const { logAuditAction } = await import('../../middlewares/auditLogger');
@@ -376,5 +473,77 @@ export async function handleImportJob(job: any) {
 
   } catch (error) {
     console.error('[WORKER] Falha fatal na importação:', error);
+  }
+}
+
+export async function handleProcessSync(processId: string, tenantId: string, triggeredBy: string) {
+  const adapter = new DataJudAdapter();
+  const processRecord = await prisma.process.findUnique({
+    where: { id: processId }
+  });
+  if (!processRecord) return { success: false, error: 'Processo não encontrado' };
+
+  console.log(`[WORKER] Sincronizando processo unitário: ${processRecord.processNumber} (ID: ${processId})`);
+  let newMovementsCount = 0;
+
+  try {
+    const p = await adapter.fetchByProcessNumber(processRecord.processNumber);
+    if (p) {
+      await prisma.process.update({
+        where: { id: processId },
+        data: {
+          status: p.status,
+          justiceType: p.justiceType,
+          tribunal: p.tribunal,
+          className: p.className,
+          subjectMain: p.subjectMain,
+          subjectsExtra: p.subjectsExtra || [],
+          lastSyncAt: new Date(),
+          ...(p.value ? { value: BigInt(p.value) } : {})
+        }
+      });
+
+      for (const mov of p.movements) {
+        try {
+          await prisma.movement.create({
+            data: {
+              processId: processRecord.id,
+              tenantId,
+              sourceEventId: mov.eventId,
+              eventDate: mov.date,
+              eventCode: mov.code,
+              eventName: mov.name,
+              eventTypeGroup: mov.typeGroup,
+              description: mov.description,
+              importType: 'DATAJUD',
+              source: 'API_PUBLICA'
+            }
+          });
+          newMovementsCount++;
+        } catch (e: any) {
+          if (e.code !== 'P2002') console.warn(`[WORKER] Movement create error:`, e.message);
+        }
+      }
+    }
+
+    // Always run DJEN enrichment
+    await enrichProcessFromDjen(processRecord.processNumber, tenantId, processRecord.id);
+
+    try {
+      const io = getIO();
+      io.to(`tenant:${tenantId}`).emit('notification:new', {
+        title: `Processo ${processRecord.processNumber} atualizado!`,
+        processId: processRecord.id
+      });
+    } catch (e) {}
+
+    return {
+      success: true,
+      processNumber: processRecord.processNumber,
+      newMovementsCount
+    };
+  } catch (error: any) {
+    console.error(`[WORKER] Erro sincronizando processo ${processId}:`, error);
+    return { success: false, error: error.message };
   }
 }

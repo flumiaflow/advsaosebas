@@ -80,7 +80,8 @@ export async function createUser(req: Request, res: Response) {
       name: newUser.name,
       email: newUser.email,
       role: newUser.role,
-      isActive: newUser.isActive
+      isActive: newUser.isActive,
+      tempPassword // Retornando senha provisória para exibir ao admin
     });
   } catch (error) {
     console.error('Error creating user:', error);
@@ -208,5 +209,65 @@ export async function updateUserClients(req: Request, res: Response) {
   } catch (error) {
     console.error('Error updating user clients:', error);
     return res.status(500).json({ error: 'Erro ao atualizar permissões do usuário' });
+  }
+}
+
+export async function deleteUser(req: Request, res: Response) {
+  try {
+    const tenantId = req.user?.tenantId;
+    const id = req.params.id as string;
+    if (!tenantId) return res.status(400).json({ error: 'Tenant required' });
+
+    if (req.user?.role !== 'supervisor') {
+      return res.status(403).json({ error: 'Apenas supervisores podem excluir usuários' });
+    }
+
+    // Não pode excluir a si mesmo
+    if (req.user!.userId === id) {
+      return res.status(403).json({ error: 'Você não pode excluir a si mesmo.' });
+    }
+
+    const userToDelete = await prisma.user.findUnique({ 
+      where: { id },
+      include: {
+        userClientAccesses: true
+      }
+    });
+
+    if (!userToDelete || userToDelete.tenantId !== tenantId) {
+      return res.status(404).json({ error: 'Usuário não encontrado' });
+    }
+
+    if (userToDelete.userClientAccesses && userToDelete.userClientAccesses.length > 0) {
+      return res.status(409).json({ error: 'Não é possível excluir o usuário. É necessário remover o vínculo com as empresas primeiro.' });
+    }
+
+    if (userToDelete.role === 'supervisor') {
+      const activeSupervisorsCount = await prisma.user.count({
+        where: { tenantId, role: 'supervisor', isActive: true }
+      });
+
+      if (activeSupervisorsCount <= 1) {
+        return res.status(409).json({ error: 'Não é possível remover o último supervisor ativo do escritório.' });
+      }
+    }
+
+    await prisma.user.delete({
+      where: { id }
+    });
+
+    await logAuditAction({
+      tenantId,
+      userId: req.user!.userId,
+      action: 'USER_DELETED',
+      entityType: 'User',
+      entityId: id,
+      metadata: { email: userToDelete.email }
+    });
+
+    return res.status(200).json({ message: 'Usuário excluído com sucesso' });
+  } catch (error) {
+    console.error('Error deleting user:', error);
+    return res.status(500).json({ error: 'Erro ao excluir usuário' });
   }
 }

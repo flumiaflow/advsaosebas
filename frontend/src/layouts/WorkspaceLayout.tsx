@@ -16,14 +16,10 @@ export default function WorkspaceLayout() {
   const handleExitImpersonate = async () => {
     try {
       const { data } = await api.post('/auth/impersonate/exit');
-      if (data.accessToken && data.user) {
-        login(data.accessToken, data.user);
-      } else {
-        await initAuth();
-      }
-      navigate('/backoffice');
+      window.location.href = '/backoffice';
     } catch (e) {
       console.error('Erro ao sair da sessão fantasma', e);
+      window.location.href = '/backoffice';
     }
   };
 
@@ -79,7 +75,7 @@ export default function WorkspaceLayout() {
         </div>
       </aside>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className={styles.main}>
         {isImpersonating && (
           <div style={{ 
             backgroundColor: '#F59E0B', 
@@ -89,7 +85,8 @@ export default function WorkspaceLayout() {
             justifyContent: 'space-between', 
             alignItems: 'center',
             fontSize: '0.875rem',
-            fontWeight: 500
+            fontWeight: 500,
+            flexShrink: 0
           }}>
             <span>Atenção: Visualizando ambiente como Administrador. Ações feitas aqui serão registradas em log.</span>
             <button 
@@ -105,7 +102,7 @@ export default function WorkspaceLayout() {
           </div>
         )}
 
-        <header style={{ height: '60px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 2rem', backgroundColor: 'var(--color-bg-surface)' }}>
+        <header style={{ height: '60px', flexShrink: 0, borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 2rem', backgroundColor: 'var(--color-bg-surface)' }}>
           <NotificationBadge />
         </header>
         

@@ -74,3 +74,22 @@ button {
 svg {
   flex-shrink: 0;
 }
+
+/* Scrollbars visíveis e fluidas */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(13, 17, 23, 0.6);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(48, 54, 61, 0.8);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(88, 166, 255, 0.5);
+}

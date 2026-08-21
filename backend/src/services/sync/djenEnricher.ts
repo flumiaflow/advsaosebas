@@ -30,26 +30,45 @@ export async function enrichProcessFromDjen(processNumber: string, tenantId: str
     // Endpoint público oficial do Diário de Justiça Eletrônico Nacional (DJEN / CNJ)
     const url = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
     
-    const response = await axios.get(url, {
-      params: {
-        numeroProcesso: cleanNumber,
-        itensPorPagina: 100
-      },
-      timeout: 6000,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'JurisWatch-SyncEngine/1.0'
-      }
-    }).catch(err => {
-      // Falha de rede silenciosa para não travar o sync
-      return null;
-    });
+    let pagina = 1;
+    let hasMore = true;
+    const maxPages = 20;
+    const items: any[] = [];
 
-    if (!response || !response.data || !response.data.items || response.data.items.length === 0) {
+    while (hasMore && pagina <= maxPages) {
+      const response = await axios.get(url, {
+        params: {
+          numeroProcesso: cleanNumber,
+          itensPorPagina: 100,
+          pagina
+        },
+        timeout: 6000,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'JurisWatch-SyncEngine/1.0'
+        }
+      }).catch(err => {
+        console.warn(`[DJEN ENRICHER] Falha de rede ao buscar página ${pagina} do processo ${processNumber}:`, err.message);
+        return null;
+      });
+
+      if (!response || !response.data || !response.data.items || response.data.items.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      items.push(...response.data.items);
+      
+      if (response.data.items.length < 100) {
+        hasMore = false;
+      }
+      pagina++;
+    }
+
+    if (items.length === 0) {
       return { success: false, reason: 'Nenhuma publicação localizada no DJEN' };
     }
 
-    const items: any[] = response.data.items;
     const enrichedParties = [];
     let movementsCreated = 0;
 

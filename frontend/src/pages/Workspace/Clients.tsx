@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
+import { useSocket } from '../../hooks/useSocket';
 import styles from '../Backoffice/Backoffice.module.css';
 import { Plus, Trash2, Building2, UploadCloud, RefreshCw, Edit3, CheckCircle2, Loader2, AlertCircle, ArrowRight, X, Terminal, ShieldCheck, Scale } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -46,36 +47,27 @@ export default function Clients() {
   const [importPreview, setImportPreview] = useState<any>(null);
 
   // Sync Radar Modal State
-  const [syncModalState, setSyncModalState] = useState<{
-    isOpen: boolean;
-    client: any | null;
-    progress: number;
-    currentStepIndex: number;
-    logs: string[];
-    status: 'idle' | 'running' | 'completed' | 'error';
-    summary: {
-      newProcessesCount: number;
-      newMovementsCount: number;
-      establishmentsCount: number;
-    } | null;
-    errorMessage?: string;
-  }>({
-    isOpen: false,
-    client: null,
-    progress: 0,
-    currentStepIndex: 0,
-    logs: [],
-    status: 'idle',
-    summary: null
-  });
-
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const socket = useSocket();
 
   useEffect(() => {
-    if (logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [syncModalState.logs]);
+    if (!socket) return;
+    
+    const handleSyncCompleted = (payload: any) => {
+      if (payload.success) {
+        queryClient.invalidateQueries({ queryKey: ['workspace', 'processes'] });
+        queryClient.invalidateQueries({ queryKey: ['workspace', 'clients'] });
+        queryClient.invalidateQueries({ queryKey: ['workspace', 'dashboard'] });
+        toast.success(`Varredura concluída! ${payload.summary?.newProcessesCount ?? 0} processos atualizados.`);
+      } else {
+        toast.error(`Falha na varredura: ${payload.error}`);
+      }
+    };
+
+    socket.on('sync:completed', handleSyncCompleted);
+    return () => {
+      socket.off('sync:completed', handleSyncCompleted);
+    };
+  }, [socket, queryClient]);
 
   // Queries
   const { data: clients, isLoading } = useQuery({
@@ -130,107 +122,17 @@ export default function Clients() {
     onError: (error: any) => alert(error.response?.data?.error || 'Erro ao iniciar importação')
   });
 
-  // Iniciar Sincronização Interativa com Radar e Gauge
   const handleStartSync = async (client: any) => {
-    const ests = client.establishments || [];
-    const nowStr = () => new Date().toLocaleTimeString('pt-BR');
-
-    setSyncModalState({
-      isOpen: true,
-      client,
-      progress: 5,
-      currentStepIndex: 0,
-      logs: [
-        `[${nowStr()}] 🚀 Inicializando varredura para o grupo: ${client.name}`,
-        `[${nowStr()}] 🏢 Mapeando ${ests.length} CNPJ(s) ativos cadastrados...`
-      ],
-      status: 'running',
-      summary: null
-    });
-
     try {
-      // Simulação progressiva de feedback visual enquanto o backend executa
-      const timer1 = setTimeout(() => {
-        setSyncModalState(prev => ({
-          ...prev,
-          progress: 25,
-          currentStepIndex: 1,
-          logs: [
-            ...prev.logs,
-            `[${nowStr()}] 📡 Conectando ao DataJud (CNJ) - Varredura de Tribunais Regionais...`,
-            `[${nowStr()}] 🔎 Consultando CNPJs: ${ests.map((e: any) => e.cnpj).join(', ') || 'N/D'}`
-          ]
-        }));
-      }, 700);
-
-      const timer2 = setTimeout(() => {
-        setSyncModalState(prev => ({
-          ...prev,
-          progress: 55,
-          currentStepIndex: 2,
-          logs: [
-            ...prev.logs,
-            `[${nowStr()}] 📥 Extraindo metadados de processos e movimentações processuais...`
-          ]
-        }));
-      }, 1500);
-
-      const timer3 = setTimeout(() => {
-        setSyncModalState(prev => ({
-          ...prev,
-          progress: 80,
-          currentStepIndex: 3,
-          logs: [
-            ...prev.logs,
-            `[${nowStr()}] 🏛️ Consultando API do Diário de Justiça Eletrônico Nacional (DJEN)...`,
-            `[${nowStr()}] 🔓 Desmascarando nomes de polos ativos e advogados via DJE...`
-          ]
-        }));
-      }, 2300);
-
-      // Chamada real ao backend
-      const response = await api.post(`/sync/client/${client.id}`);
+      await api.post(`/sync/client/${client.id}`);
+      toast.success(`Sincronização de ${client.name} iniciada! Acompanhe o progresso.`);
       
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-
-      const summary = response.data?.summary || {
-        establishmentsCount: ests.length,
-        newProcessesCount: 0,
-        newMovementsCount: 0
-      };
-
-      setSyncModalState(prev => ({
-        ...prev,
-        progress: 100,
-        currentStepIndex: 4,
-        status: 'completed',
-        summary,
-        logs: [
-          ...prev.logs,
-          `[${nowStr()}] ✨ Consolidação e deduplicação de partes concluídas com sucesso!`,
-          `[${nowStr()}] 📊 Resumo: ${summary.newProcessesCount ?? 0} processo(s) atualizado(s), ${summary.newMovementsCount ?? 0} movimentação(ões) indexada(s).`,
-          `[${nowStr()}] 🏁 Varredura finalizada.`
-        ]
-      }));
-
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'processes'] });
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'clients'] });
-      queryClient.invalidateQueries({ queryKey: ['workspace', 'dashboard'] });
-      toast.success('Varredura concluída com sucesso!');
+      // Define optimistic state immediately before navigating
+      queryClient.setQueryData(['workspace', 'syncStatus', client.id], { status: 'running' });
+      
+      navigate(`/dashboard/processes?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`);
     } catch (err: any) {
-      setSyncModalState(prev => ({
-        ...prev,
-        status: 'error',
-        progress: 100,
-        errorMessage: err.response?.data?.error || 'Erro ao sincronizar com os tribunais',
-        logs: [
-          ...prev.logs,
-          `[${nowStr()}] ❌ Erro: ${err.response?.data?.error || err.message}`
-        ]
-      }));
-      toast.error('Erro na varredura');
+      toast.error(err.response?.data?.error || 'Erro na requisição inicial da varredura');
     }
   };
 
@@ -460,14 +362,6 @@ export default function Clients() {
                     <td style={{ textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: '0.6rem', alignItems: 'center' }}>
                         <button 
-                          onClick={() => navigate(`/dashboard/processes?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`)}
-                          className={styles.btnText}
-                          style={{ color: '#3fb950', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '12px', fontWeight: 600 }}
-                          title="Visualizar processos deste cliente"
-                        >
-                          <Scale size={13} /> Processos
-                        </button>
-                        <button 
                           className={styles.btnText}
                           onClick={() => handleOpenEdit(client)}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px' }}
@@ -482,18 +376,6 @@ export default function Clients() {
                           title="Iniciar varredura de processos para este grupo agora"
                         >
                           <RefreshCw size={13} /> Sincronizar
-                        </button>
-                        <button 
-                          onClick={() => {
-                            setImportModalClient(client);
-                            setImportInput('');
-                            setImportPreview(null);
-                          }}
-                          className={styles.btnText}
-                          style={{ color: 'var(--color-warning)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px' }}
-                          title="Importar lista de processos específicos para este grupo"
-                        >
-                          <UploadCloud size={13} /> Importar
                         </button>
                       </div>
                     </td>
@@ -512,212 +394,7 @@ export default function Clients() {
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════════════════════ */}
-      {/* MODAL: RADAR DE VARREDURA & GAUGE DE PROGRESSO AO VIVO     */}
-      {/* ══════════════════════════════════════════════════════════ */}
-      {syncModalState.isOpen && (
-        <div className={styles.modalOverlay}>
-          <div className={styles.modalContent} style={{ maxWidth: '640px', padding: '1.75rem', background: '#0e131f', border: '1px solid rgba(56, 139, 253, 0.25)', boxShadow: '0 25px 60px rgba(0,0,0,0.7)' }}>
-            
-            {/* Topo do Modal */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                  <span className={styles.tag} style={{ background: 'rgba(37, 99, 235, 0.15)', color: 'var(--blue)', border: '1px solid rgba(37, 99, 235, 0.3)', fontSize: '10px' }}>
-                    DATAJUD & DJEN
-                  </span>
-                  <h2 style={{ margin: 0, fontSize: '1.15rem', color: '#fff', border: 'none', padding: 0 }}>
-                    Varredura Judicial em Andamento
-                  </h2>
-                </div>
-                <div style={{ color: 'var(--t2)', fontSize: '13px' }}>
-                  Grupo: <strong style={{ color: '#fff' }}>{syncModalState.client?.name}</strong> · {syncModalState.client?.establishments?.length || 1} CNPJ(s)
-                </div>
-              </div>
 
-              {syncModalState.status !== 'running' && (
-                <button 
-                  onClick={() => setSyncModalState(prev => ({ ...prev, isOpen: false }))} 
-                  style={{ background: 'transparent', border: 'none', color: '#8b949e', cursor: 'pointer' }}
-                >
-                  <X size={18} />
-                </button>
-              )}
-            </div>
-
-            {/* SEÇÃO PRINCIPAL: RADIAL GAUGE + STATUS */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', background: 'rgba(22, 27, 34, 0.8)', border: '1px solid var(--line)', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.25rem' }}>
-              
-              {/* Radial Gauge Visual SVG */}
-              <div style={{ position: 'relative', width: '90px', height: '90px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="90" height="90" viewBox="0 0 100 100" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle 
-                    cx="50" 
-                    cy="50" 
-                    r="40" 
-                    fill="transparent" 
-                    stroke="rgba(255, 255, 255, 0.08)" 
-                    strokeWidth="8" 
-                  />
-                  <circle 
-                    cx="50" 
-                    cy="50" 
-                    r="40" 
-                    fill="transparent" 
-                    stroke={syncModalState.status === 'error' ? '#f85149' : syncModalState.status === 'completed' ? '#3fb950' : '#2563eb'} 
-                    strokeWidth="8" 
-                    strokeDasharray="251.2"
-                    strokeDashoffset={251.2 - (251.2 * syncModalState.progress) / 100}
-                    strokeLinecap="round"
-                    style={{ transition: 'stroke-dashoffset 0.5s ease-in-out, stroke 0.3s ease' }}
-                  />
-                </svg>
-
-                <div style={{ position: 'absolute', textAlign: 'center' }}>
-                  <div style={{ fontSize: '18px', fontWeight: 800, color: '#fff', fontFamily: 'var(--font-mono)' }}>
-                    {syncModalState.progress}%
-                  </div>
-                  <div style={{ fontSize: '9px', textTransform: 'uppercase', color: 'var(--t3)', letterSpacing: '0.4px' }}>
-                    {syncModalState.status === 'completed' ? 'Concluído' : syncModalState.status === 'error' ? 'Falha' : 'Varrendo'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Status Text & Dynamic Step Info */}
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.25rem' }}>
-                  {syncModalState.status === 'running' ? (
-                    <Loader2 size={16} color="#3b82f6" className="animate-spin" />
-                  ) : syncModalState.status === 'completed' ? (
-                    <CheckCircle2 size={16} color="#3fb950" />
-                  ) : (
-                    <AlertCircle size={16} color="#f85149" />
-                  )}
-                  <span style={{ fontSize: '13.5px', fontWeight: 600, color: syncModalState.status === 'error' ? '#f85149' : syncModalState.status === 'completed' ? '#3fb950' : '#fff' }}>
-                    {syncModalState.status === 'completed' 
-                      ? 'Varredura finalizada com sucesso!' 
-                      : syncModalState.status === 'error' 
-                      ? 'Erro durante a varredura' 
-                      : SYNC_STEPS[syncModalState.currentStepIndex]?.title}
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--t2)', lineHeight: 1.4 }}>
-                  {syncModalState.status === 'completed' 
-                    ? 'Todos os processos e andamentos foram indexados e enriquecidos na base.' 
-                    : syncModalState.status === 'error'
-                    ? syncModalState.errorMessage
-                    : SYNC_STEPS[syncModalState.currentStepIndex]?.desc}
-                </div>
-              </div>
-            </div>
-
-            {/* STEPPER DE ETAPAS */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.5rem', marginBottom: '1.25rem' }}>
-              {SYNC_STEPS.map((s, idx) => {
-                const isDone = syncModalState.progress >= ((idx + 1) * 20) || syncModalState.status === 'completed';
-                const isCurrent = syncModalState.currentStepIndex === idx && syncModalState.status === 'running';
-
-                return (
-                  <div 
-                    key={s.id}
-                    style={{
-                      background: isCurrent ? 'rgba(37, 99, 235, 0.15)' : isDone ? 'rgba(63, 185, 80, 0.08)' : 'rgba(255, 255, 255, 0.03)',
-                      border: `1px solid ${isCurrent ? 'var(--blue)' : isDone ? 'rgba(63, 185, 80, 0.3)' : 'var(--line)'}`,
-                      borderRadius: '6px',
-                      padding: '8px 6px',
-                      textAlign: 'center',
-                      transition: 'all 0.3s ease'
-                    }}
-                  >
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: isCurrent ? 'var(--blue)' : isDone ? '#3fb950' : 'var(--t3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', marginBottom: '2px' }}>
-                      {isDone ? (
-                        <CheckCircle2 size={12} />
-                      ) : isCurrent ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <span>#{s.id}</span>
-                      )}
-                      <span>Etapa {s.id}</span>
-                    </div>
-                    <div style={{ fontSize: '10px', color: isCurrent ? '#fff' : isDone ? 'var(--t2)' : 'var(--t3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {s.title.split(' ')[0]}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* LIVE TERMINAL CONSOLE */}
-            <div style={{ background: '#05070c', border: '1px solid var(--line)', borderRadius: '8px', padding: '0.75rem', marginBottom: '1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', paddingBottom: '0.35rem' }}>
-                <Terminal size={12} color="#8b949e" />
-                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--t3)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>
-                  Log de Varredura em Tempo Real
-                </span>
-              </div>
-              <div style={{ height: '110px', overflowY: 'auto', fontFamily: 'var(--font-mono)', fontSize: '11px', color: '#8b949e', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {syncModalState.logs.map((line, idx) => (
-                  <div key={idx} style={{ color: line.includes('❌') ? '#f85149' : line.includes('✨') || line.includes('✅') ? '#3fb950' : line.includes('🚀') ? '#3b82f6' : '#8b949e' }}>
-                    {line}
-                  </div>
-                ))}
-                <div ref={logEndRef} />
-              </div>
-            </div>
-
-            {/* CARDS DE RESUMO AO FINALIZAR */}
-            {syncModalState.status === 'completed' && syncModalState.summary && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
-                <div style={{ background: 'rgba(22, 27, 34, 0.8)', border: '1px solid var(--line)', borderRadius: '8px', padding: '0.75rem', textAlign: 'center' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--t3)' }}>CNPJs Varridos</div>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: '#fff', marginTop: '2px' }}>
-                    {syncModalState.summary.establishmentsCount || syncModalState.client?.establishments?.length || 1}
-                  </div>
-                </div>
-                <div style={{ background: 'rgba(37, 99, 235, 0.1)', border: '1px solid rgba(37, 99, 235, 0.3)', borderRadius: '8px', padding: '0.75rem', textAlign: 'center' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--blue)' }}>Novos Processos</div>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: 'var(--blue)', marginTop: '2px' }}>
-                    +{syncModalState.summary.newProcessesCount ?? 0}
-                  </div>
-                </div>
-                <div style={{ background: 'rgba(63, 185, 80, 0.1)', border: '1px solid rgba(63, 185, 80, 0.3)', borderRadius: '8px', padding: '0.75rem', textAlign: 'center' }}>
-                  <div style={{ fontSize: '11px', color: '#3fb950' }}>Movimentações</div>
-                  <div style={{ fontSize: '18px', fontWeight: 700, color: '#3fb950', marginTop: '2px' }}>
-                    +{syncModalState.summary.newMovementsCount ?? 0}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* FOOTER ACTIONS */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <button 
-                type="button" 
-                className={styles.btnSecondary} 
-                onClick={() => setSyncModalState(prev => ({ ...prev, isOpen: false }))}
-                disabled={syncModalState.status === 'running'}
-              >
-                {syncModalState.status === 'running' ? 'Varrendo em segundo plano...' : 'Fechar'}
-              </button>
-              
-              {syncModalState.status === 'completed' && (
-                <button 
-                  type="button" 
-                  className={styles.btnPrimary}
-                  onClick={() => {
-                    setSyncModalState(prev => ({ ...prev, isOpen: false }));
-                    navigate('/dashboard/processes');
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-                >
-                  Ver Processos Encontrados <ArrowRight size={14} />
-                </button>
-              )}
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* ══════════════════════════════════════════════════════════ */}
       {/* MODAL: CADASTRO E EDIÇÃO DO GRUPO EMPRESARIAL COM CNPJS    */}

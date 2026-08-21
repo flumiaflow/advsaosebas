@@ -8,6 +8,14 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum app_role {
+  super_admin
+  tenant_admin
+  admin
+  moderator
+  user
+}
+
 model Tenant {
   id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                 String                 @db.VarChar(255)
@@ -293,6 +301,7 @@ model SyncJob {
   failedEstablishments Json                   @default("[]") @map("failed_establishments")
   partialErrorCount    Int                    @default(0) @map("partial_error_count")
   errorMessage         String?                @map("error_message") @db.Text
+  details              Json?                  @map("details")
 
   @@index([tenantId, startedAt(sort: Desc)])
   @@map("sync_jobs")
@@ -338,3 +347,13 @@ model SyncThrottle {
 
   @@map("sync_throttle")
 }
+
+model SystemSetting {
+  key                  String                 @id @db.VarChar(100)
+  value                Json
+  description          String?                @db.Text
+  updatedAt            DateTime               @default(now()) @map("updated_at")
+
+  @@map("system_settings")
+}
+

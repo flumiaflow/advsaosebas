@@ -6,30 +6,36 @@ import { addSyncJob } from './worker';
 export function startScheduler() {
   cron.schedule('* * * * *', async () => {
     try {
-      const activeConfigs = await prisma.syncConfig.findMany({
-        where: { 
-          isActive: true,
-          tenant: { status: 'active' }
-        },
-        include: { tenant: true }
+      const activeTenants = await prisma.tenant.findMany({
+        where: { status: 'active' },
+        include: { syncConfig: true }
       });
 
-      for (const config of activeConfigs) {
-        if (!config.tenant) continue; // Skip if tenant is suspended/cancelled/not found
+      for (const tenant of activeTenants) {
+        const config = tenant.syncConfig || {
+          daysOfWeek: [1, 2, 3, 4, 5],
+          times: ['07:00'],
+          timezone: tenant.timezone || 'America/Sao_Paulo',
+          onlyActiveClients: true,
+          isActive: true
+        };
+
+        if (!config.isActive) continue;
+
+        const timezone = config.timezone || tenant.timezone || 'America/Sao_Paulo';
 
         // Get current date/time in tenant's configured timezone
         const now = new Date();
         const tzTime = new Intl.DateTimeFormat('pt-BR', {
-          timeZone: config.timezone,
+          timeZone: timezone,
           hour: '2-digit',
           minute: '2-digit',
-          hour12: false,
-          weekday: 'narrow' // Returns 1 letter, not useful directly, so we use logic below
+          hour12: false
         }).format(now);
 
         // Calculate Day of Week in Target Timezone (0 = Sunday, 1 = Monday, ...)
         const tzDateStr = new Intl.DateTimeFormat('en-US', {
-          timeZone: config.timezone,
+          timeZone: timezone,
           weekday: 'short'
         }).format(now);
         
@@ -39,25 +45,26 @@ export function startScheduler() {
         const currentDayOfWeek = daysMap[tzDateStr];
 
         // Check if today is an active day
-        if (!config.daysOfWeek.includes(currentDayOfWeek)) {
+        const daysOfWeek = config.daysOfWeek || [1, 2, 3, 4, 5];
+        if (!daysOfWeek.includes(currentDayOfWeek)) {
           continue;
         }
 
         // Check if current hour:minute matches any of the configured times
         const currentHourMinute = tzTime; // "HH:mm"
-        if (config.times.includes(currentHourMinute)) {
-          // Time matches! Let's enqueue jobs for all active clients of this tenant
+        const times = config.times || ['07:00'];
+        if (times.includes(currentHourMinute)) {
           const clients = await prisma.client.findMany({
             where: {
-              tenantId: config.tenantId,
+              tenantId: tenant.id,
               isActive: config.onlyActiveClients ? true : undefined
             }
           });
 
-          console.log(`[SCHEDULER] Triggering sync for Tenant ${config.tenant.name} (${clients.length} clients) at ${currentHourMinute}`);
+          console.log(`[SCHEDULER] Auto-Sync disparado para escritório ${tenant.name} (${clients.length} clientes) às ${currentHourMinute}`);
 
           for (const client of clients) {
-            await addSyncJob(config.tenantId, client.id, 'system');
+            await addSyncJob(tenant.id, client.id, 'system');
           }
         }
       }

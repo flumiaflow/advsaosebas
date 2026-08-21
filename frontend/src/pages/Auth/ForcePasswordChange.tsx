@@ -1,32 +1,44 @@
-import { useState } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../services/api';
-import { useAuth } from '../hooks/useAuth';
+import { api } from '../../services/api';
+import { AuthContext } from '../../context/AuthContext';
 import styles from './Login.module.css';
 import { ShieldCheck, Lock, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function ChangePassword() {
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+export default function ForcePasswordChange() {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const { user, initAuth, logout } = useContext(AuthContext);
   const navigate = useNavigate();
-  const { user, initAuth, logout } = useAuth();
+
+  useEffect(() => {
+    // Se o usuário não tiver mustChangePassword, redirecionar de volta
+    if (user && !user.mustChangePassword) {
+      navigate('/dashboard');
+    }
+  }, [user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (newPassword.length < 8) {
+    if (password.length < 8) {
       toast.error('A nova senha deve ter no mínimo 8 caracteres.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error('As senhas não coincidem.');
       return;
     }
 
     try {
       setLoading(true);
-      await api.post('/auth/change-password', { currentPassword, newPassword });
+      await api.post('/auth/change-password', { newPassword: password });
       toast.success('Senha atualizada com sucesso!');
       
+      // Atualiza o estado global de autenticação para o usuário ganhar acesso ao Dashboard
       await initAuth();
-      navigate(user?.role === 'super_admin' ? '/backoffice' : '/dashboard');
+      navigate('/dashboard');
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Erro ao alterar a senha');
     } finally {
@@ -58,33 +70,33 @@ export default function ChangePassword() {
       </div>
       <div className={styles.right}>
         <div className={styles.formWrapper}>
-          <h2>Troca de Senha Obrigatória</h2>
+          <h2>Cadastrar Nova Senha</h2>
           <p className={styles.subtitle}>Este é o seu primeiro acesso. Por favor, cadastre sua senha definitiva.</p>
 
           <form onSubmit={handleSubmit} className={styles.form}>
             <div className={styles.inputGroup}>
-              <label>Senha Provisória (Atual)</label>
+              <label>Nova Senha</label>
               <div className={styles.inputIcon}>
                 <Lock size={18} />
                 <input 
                   type="password" 
-                  value={currentPassword}
-                  onChange={e => setCurrentPassword(e.target.value)}
-                  placeholder="Insira a senha recebida"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Mínimo de 8 caracteres"
                   required
                 />
               </div>
             </div>
 
             <div className={styles.inputGroup}>
-              <label>Nova Senha Definitiva</label>
+              <label>Confirmar Nova Senha</label>
               <div className={styles.inputIcon}>
                 <Lock size={18} />
                 <input 
                   type="password" 
-                  value={newPassword}
-                  onChange={e => setNewPassword(e.target.value)}
-                  placeholder="Mínimo de 8 caracteres"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  placeholder="Repita a nova senha"
                   required
                 />
               </div>
@@ -94,7 +106,7 @@ export default function ChangePassword() {
               {loading ? 'Salvando...' : 'Salvar Senha e Entrar'}
             </button>
             
-            <button type="button" onClick={logout} className={styles.btnSecondary} style={{ marginTop: '1rem', width: '100%', background: 'transparent', border: '1px solid var(--line)', color: 'var(--t2)' }}>
+            <button type="button" onClick={logout} className={styles.btnSecondary} style={{ marginTop: '1rem', width: '100%' }}>
               Cancelar e Sair
             </button>
           </form>

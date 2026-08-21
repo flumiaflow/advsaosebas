@@ -221,21 +221,23 @@ export default function Users() {
                     </span>
                   </td>
                   <td style={{ textAlign: 'right' }}>
-                    <button 
-                      className={styles.btnText}
-                      onClick={() => openModal(user)}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px', marginRight: '0.75rem' }}
-                    >
-                      <Edit2 size={13} /> Editar
-                    </button>
-                    <button 
-                      className={styles.btnText}
-                      onClick={() => handleDeleteUser(user)}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px', color: '#ef4444' }}
-                      title="Excluir Usuário"
-                    >
-                      <Trash2 size={13} /> Excluir
-                    </button>
+                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      <button 
+                        className={styles.btnText}
+                        onClick={() => openModal(user)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px' }}
+                      >
+                        <Edit2 size={13} /> Editar
+                      </button>
+                      <button 
+                        className={styles.btnText}
+                        onClick={() => handleDeleteUser(user)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '12px', color: '#ef4444' }}
+                        title="Excluir Usuário"
+                      >
+                        <Trash2 size={13} /> Excluir
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

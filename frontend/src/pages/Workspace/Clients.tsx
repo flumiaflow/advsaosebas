@@ -7,17 +7,10 @@ import styles from '../Backoffice/Backoffice.module.css';
 import { Plus, Trash2, Building2, UploadCloud, RefreshCw, Edit3, CheckCircle2, Loader2, AlertCircle, ArrowRight, X, Terminal, ShieldCheck, Scale } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-function formatCNPJ(value: string): string {
-  const raw = value.replace(/\D/g, '').slice(0, 14);
-  if (raw.length > 12) return raw.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{1,2})$/, '$1.$2.$3/$4-$5');
-  if (raw.length > 8) return raw.replace(/^(\d{2})(\d{3})(\d{3})(\d{1,4})$/, '$1.$2.$3/$4');
-  if (raw.length > 5) return raw.replace(/^(\d{2})(\d{3})(\d{1,3})$/, '$1.$2.$3');
-  if (raw.length > 2) return raw.replace(/^(\d{2})(\d{1,3})$/, '$1.$2');
-  return raw;
-}
+import { formatCNPJ, formatCPF, formatDocument, maskCPF, isDocCpf } from '../../utils/formatters';
 
 const SYNC_STEPS = [
-  { id: 1, title: 'Catalogação de CNPJs', desc: 'Mapeando matriz e filiais cadastradas' },
+  { id: 1, title: 'Catalogação de Documentos', desc: 'Mapeando CNPJs, CPFs e termos de busca' },
   { id: 2, title: 'Conexão DataJud (CNJ)', desc: 'Conectando às APIs de TRTs e Tribunais de Justiça' },
   { id: 3, title: 'Varredura de Processos', desc: 'Buscando novos feitos e movimentações recentes' },
   { id: 4, title: 'Enriquecimento DJEN', desc: 'Desmascarando nomes das partes via Diário Oficial' },
@@ -37,8 +30,10 @@ export default function Clients() {
     fantasyName: string;
     notes: string;
     isActive: boolean;
-    cnpjs: string[];
-    currentCnpj: string;
+    documents: { document: string; alias: string; razaoSocial: string; type: 'cnpj' | 'cpf' }[];
+    currentDocument: string;
+    currentAlias: string;
+    currentDocName: string;
   } | null>(null);
 
   // Import Modal state
@@ -142,50 +137,74 @@ export default function Clients() {
       fantasyName: '',
       notes: '',
       isActive: true,
-      cnpjs: [],
-      currentCnpj: ''
+      documents: [],
+      currentDocument: '',
+      currentAlias: '',
+      currentDocName: ''
     });
     setClientModalOpen(true);
   };
 
   const handleOpenEdit = (client: any) => {
-    const existingCnpjs = (client.establishments || []).map((e: any) => e.cnpj);
+    const existingDocs = (client.establishments || []).map((e: any) => ({
+      document: e.cnpj,
+      alias: e.alias || '',
+      razaoSocial: e.razaoSocial || '',
+      type: isDocCpf(e.cnpj) ? 'cpf' : 'cnpj'
+    }));
     setClientForm({
       id: client.id,
       name: client.name,
       fantasyName: client.fantasyName || '',
       notes: client.notes || '',
       isActive: client.isActive !== false,
-      cnpjs: existingCnpjs,
-      currentCnpj: ''
+      documents: existingDocs as any,
+      currentDocument: '',
+      currentAlias: '',
+      currentDocName: ''
     });
     setClientModalOpen(true);
   };
 
-  const handleAddCnpj = () => {
+  const handleAddDocument = () => {
     if (!clientForm) return;
-    const clean = clientForm.currentCnpj.replace(/\D/g, '');
-    if (clean.length !== 14) {
-      toast.error('Informe um CNPJ válido com 14 dígitos.');
+    const clean = clientForm.currentDocument.replace(/\D/g, '');
+    if (clean.length !== 11 && clean.length !== 14) {
+      toast.error('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.');
       return;
     }
-    const formatted = formatCNPJ(clean);
-    if (clientForm.cnpjs.includes(formatted)) {
-      toast.error('Este CNPJ já está na lista deste cliente.');
+    const isCpf = clean.length === 11;
+    if (isCpf && !clientForm.currentDocName.trim()) {
+      toast.error('Para CPF, informe o nome completo da pessoa.');
+      return;
+    }
+    const formatted = formatDocument(clean);
+    if (clientForm.documents.some(d => d.document === formatted)) {
+      toast.error('Este documento já está na lista deste cliente.');
       return;
     }
     setClientForm({
       ...clientForm,
-      cnpjs: [...clientForm.cnpjs, formatted],
-      currentCnpj: ''
+      documents: [
+        ...clientForm.documents, 
+        { 
+          document: formatted, 
+          alias: clientForm.currentAlias.trim(), 
+          razaoSocial: clientForm.currentDocName.trim(),
+          type: isCpf ? 'cpf' : 'cnpj' 
+        }
+      ],
+      currentDocument: '',
+      currentAlias: '',
+      currentDocName: ''
     });
   };
 
-  const handleRemoveCnpj = (cnpjToRemove: string) => {
+  const handleRemoveDocument = (docToRemove: string) => {
     if (!clientForm) return;
     setClientForm({
       ...clientForm,
-      cnpjs: clientForm.cnpjs.filter(c => c !== cnpjToRemove)
+      documents: clientForm.documents.filter(d => d.document !== docToRemove)
     });
   };
 
@@ -196,12 +215,17 @@ export default function Clients() {
       return;
     }
 
-    let finalCnpjs = [...clientForm.cnpjs];
-    const cleanPending = clientForm.currentCnpj.replace(/\D/g, '');
-    if (cleanPending.length === 14) {
-      const formattedPending = formatCNPJ(cleanPending);
-      if (!finalCnpjs.includes(formattedPending)) {
-        finalCnpjs.push(formattedPending);
+    let finalDocs = [...clientForm.documents];
+    const cleanPending = clientForm.currentDocument.replace(/\D/g, '');
+    if (cleanPending.length === 11 || cleanPending.length === 14) {
+      const formattedPending = formatDocument(cleanPending);
+      if (!finalDocs.some(d => d.document === formattedPending)) {
+        finalDocs.push({
+          document: formattedPending,
+          alias: clientForm.currentAlias.trim(),
+          razaoSocial: clientForm.currentDocName.trim(),
+          type: cleanPending.length === 11 ? 'cpf' : 'cnpj'
+        });
       }
     }
 
@@ -211,7 +235,11 @@ export default function Clients() {
       fantasyName: clientForm.fantasyName?.trim() || null,
       notes: clientForm.notes?.trim() || null,
       isActive: clientForm.isActive,
-      cnpjs: finalCnpjs
+      cnpjs: finalDocs.map(d => ({
+        cnpj: d.document,
+        alias: d.alias || null,
+        razaoSocial: d.razaoSocial || null
+      }))
     });
   };
 
@@ -238,7 +266,8 @@ export default function Clients() {
     const matchName = c.name?.toLowerCase().includes(term);
     const matchFantasy = c.fantasyName?.toLowerCase().includes(term);
     const matchCnpj = c.establishments?.some((e: any) => e.cnpj.includes(term));
-    return matchName || matchFantasy || matchCnpj;
+    const matchAlias = c.establishments?.some((e: any) => e.alias?.toLowerCase().includes(term));
+    return matchName || matchFantasy || matchCnpj || matchAlias;
   });
 
   if (isLoading) return <div style={{ padding: '2rem', color: 'var(--t2)' }}>Carregando empresas...</div>;
@@ -287,7 +316,7 @@ export default function Clients() {
             <thead>
               <tr>
                 <th>Grupo / Razão Social</th>
-                <th>CNPJs Monitorados</th>
+                <th>Documentos Monitorados</th>
                 <th>Status</th>
                 <th>Criado em</th>
                 <th style={{ textAlign: 'right' }}>Ações</th>
@@ -316,26 +345,36 @@ export default function Clients() {
                     <td>
                       {ests.length === 0 ? (
                         <span style={{ color: 'var(--color-warning)', fontSize: '0.75rem' }}>
-                          ⚠️ Nenhum CNPJ (Clique em Editar para adicionar)
+                          ⚠️ Nenhum Documento (Clique em Editar para adicionar)
                         </span>
                       ) : (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
-                          {ests.slice(0, 3).map((e: any, idx: number) => (
-                            <span 
-                              key={e.id || idx}
-                              style={{ 
-                                background: idx === 0 ? 'rgba(37, 99, 235, 0.15)' : 'rgba(255, 255, 255, 0.05)', 
-                                border: `1px solid ${idx === 0 ? 'var(--blue)' : 'var(--line)'}`,
-                                color: idx === 0 ? 'var(--blue)' : 'var(--t2)',
-                                padding: '2px 7px',
-                                borderRadius: '4px',
-                                fontSize: '11px',
-                                fontFamily: 'var(--font-mono)'
-                              }}
-                            >
-                              {e.cnpj} {idx === 0 && <small style={{ opacity: 0.8 }}>(Matriz)</small>}
-                            </span>
-                          ))}
+                          {ests.slice(0, 3).map((e: any, idx: number) => {
+                            const isCpf = isDocCpf(e.cnpj);
+                            const displayName = e.alias || (isCpf ? maskCPF(e.cnpj) : e.cnpj);
+                            const isMatriz = e.type === 'matriz' || (!isCpf && idx === 0);
+                            return (
+                              <span 
+                                key={e.id || idx}
+                                style={{ 
+                                  background: idx === 0 ? 'rgba(37, 99, 235, 0.15)' : 'rgba(255, 255, 255, 0.05)', 
+                                  border: `1px solid ${idx === 0 ? 'var(--blue)' : 'var(--line)'}`,
+                                  color: idx === 0 ? 'var(--blue)' : 'var(--t2)',
+                                  padding: '2px 7px',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontFamily: 'var(--font-mono)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                                title={e.alias ? (isCpf ? maskCPF(e.cnpj) : e.cnpj) : e.razaoSocial}
+                              >
+                                {displayName} {isMatriz && <small style={{ opacity: 0.8 }}>(Matriz)</small>}
+                                {isCpf && <small style={{ opacity: 0.8 }}>(PF)</small>}
+                              </span>
+                            );
+                          })}
                           {ests.length > 3 && (
                             <span 
                               style={{ 
@@ -347,7 +386,7 @@ export default function Clients() {
                                 fontSize: '11px'
                               }}
                             >
-                              +{ests.length - 3} filial(is)
+                              +{ests.length - 3} documento(s)
                             </span>
                           )}
                         </div>
@@ -471,30 +510,30 @@ export default function Clients() {
                 </div>
               </div>
 
-              {/* LISTA DE CNPJS: MATRIZ E FILIAIS */}
+              {/* LISTA DE DOCUMENTOS: CNPJ / CPF */}
               <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid var(--line)', borderRadius: '8px', padding: '1.25rem' }}>
                 <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--blue)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  2. CNPJs do Grupo (Matriz e Filiais para Varredura)
+                  2. Documentos Monitorados (CNPJ / CPF)
                 </div>
                 <p style={{ fontSize: '0.75rem', color: 'var(--t3)', margin: '0 0 1rem 0' }}>
-                  Todos os processos encontrados nestes CNPJs serão centralizados sob este cliente.
+                  Processos atrelados a estes documentos serão centralizados no grupo.
                 </p>
 
-                {/* Input para adicionar CNPJ */}
-                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                {/* Input para adicionar Documento */}
+                <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
                   <input 
                     type="text" 
-                    placeholder="00.000.000/0000-00" 
-                    value={clientForm.currentCnpj} 
-                    onChange={e => setClientForm({ ...clientForm, currentCnpj: formatCNPJ(e.target.value) })}
+                    placeholder="CNPJ ou CPF (somente números)" 
+                    value={clientForm.currentDocument} 
+                    onChange={e => setClientForm({ ...clientForm, currentDocument: formatDocument(e.target.value) })}
                     onKeyDown={e => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' && clientForm.currentDocument.length === 18) {
                         e.preventDefault();
-                        handleAddCnpj();
+                        handleAddDocument();
                       }
                     }}
                     style={{ 
-                      flex: 1, 
+                      width: '180px', 
                       padding: '0.6rem 0.75rem', 
                       borderRadius: '6px', 
                       border: '1px solid var(--line)', 
@@ -504,24 +543,62 @@ export default function Clients() {
                       fontSize: '13px'
                     }}
                   />
+                  <input 
+                    type="text" 
+                    placeholder="Apelido para o grid (Opcional, ex: Matriz SP)" 
+                    value={clientForm.currentAlias} 
+                    onChange={e => setClientForm({ ...clientForm, currentAlias: e.target.value })}
+                    style={{ 
+                      flex: 1, 
+                      padding: '0.6rem 0.75rem', 
+                      borderRadius: '6px', 
+                      border: '1px solid var(--line)', 
+                      background: 'var(--card)', 
+                      color: '#fff',
+                      fontSize: '13px'
+                    }}
+                  />
+                </div>
+                
+                {isDocCpf(clientForm.currentDocument) && (
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Nome completo da pessoa física (obrigatório para CPF)" 
+                      value={clientForm.currentDocName} 
+                      onChange={e => setClientForm({ ...clientForm, currentDocName: e.target.value })}
+                      style={{ 
+                        flex: 1, 
+                        padding: '0.6rem 0.75rem', 
+                        borderRadius: '6px', 
+                        border: '1px solid var(--blue)', 
+                        background: 'rgba(37,99,235,0.05)', 
+                        color: '#fff',
+                        fontSize: '13px'
+                      }}
+                    />
+                  </div>
+                )}
+                
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
                   <button 
                     type="button" 
-                    onClick={handleAddCnpj}
+                    onClick={handleAddDocument}
                     className={styles.btnPrimary}
-                    style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.6rem 1rem' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0.5rem 1rem', fontSize: '13px' }}
                   >
-                    <Plus size={15} /> Adicionar CNPJ
+                    <Plus size={15} /> Adicionar
                   </button>
                 </div>
 
-                {/* Lista de CNPJs Adicionados */}
-                {clientForm.cnpjs.length === 0 ? (
+                {/* Lista de Documentos Adicionados */}
+                {clientForm.documents.length === 0 ? (
                   <div style={{ padding: '1rem', textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', border: '1px dashed var(--line)', borderRadius: '6px', color: 'var(--t3)', fontSize: '0.8125rem' }}>
-                    Nenhum CNPJ adicionado ainda. Insira o CNPJ da matriz e/ou filiais acima.
+                    Nenhum documento adicionado ainda.
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
-                    {clientForm.cnpjs.map((cnpj, idx) => (
+                    {clientForm.documents.map((doc, idx) => (
                       <div 
                         key={idx}
                         style={{
@@ -534,25 +611,35 @@ export default function Clients() {
                           borderRadius: '6px'
                         }}
                       >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: idx === 0 ? 'var(--blue)' : '#fff', fontSize: '12.5px' }}>
-                            {cnpj}
-                          </span>
-                          {idx === 0 && (
-                            <span className={styles.tag} style={{ background: 'rgba(37, 99, 235, 0.2)', color: 'var(--blue)', border: '1px solid rgba(37, 99, 235, 0.4)', fontSize: '10px' }}>
-                              Matriz Principal
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: idx === 0 ? 'var(--blue)' : '#fff', fontSize: '12.5px' }}>
+                              {doc.type === 'cpf' ? maskCPF(doc.document) : doc.document}
                             </span>
-                          )}
-                          {idx > 0 && (
-                            <span className={styles.tag} style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--t3)', fontSize: '10px' }}>
-                              Filial #{idx}
-                            </span>
+                            {doc.alias && (
+                              <span style={{ color: 'var(--t2)', fontSize: '12px' }}>— {doc.alias}</span>
+                            )}
+                            {idx === 0 && doc.type !== 'cpf' && (
+                              <span className={styles.tag} style={{ background: 'rgba(37, 99, 235, 0.2)', color: 'var(--blue)', border: '1px solid rgba(37, 99, 235, 0.4)', fontSize: '10px' }}>
+                                Matriz Principal
+                              </span>
+                            )}
+                            {doc.type === 'cpf' && (
+                              <span className={styles.tag} style={{ background: 'rgba(255, 255, 255, 0.05)', color: 'var(--t3)', fontSize: '10px' }}>
+                                Pessoa Física
+                              </span>
+                            )}
+                          </div>
+                          {doc.type === 'cpf' && doc.razaoSocial && (
+                            <div style={{ fontSize: '11px', color: 'var(--t3)' }}>
+                              Nome: {doc.razaoSocial}
+                            </div>
                           )}
                         </div>
 
                         <button 
                           type="button" 
-                          onClick={() => handleRemoveCnpj(cnpj)}
+                          onClick={() => handleRemoveDocument(doc.document)}
                           style={{
                             background: 'transparent',
                             border: 'none',
@@ -562,7 +649,7 @@ export default function Clients() {
                             display: 'flex',
                             alignItems: 'center'
                           }}
-                          title="Remover este CNPJ"
+                          title="Remover"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -588,7 +675,7 @@ export default function Clients() {
                 disabled={saveClientMutation.isPending || !clientForm.name}
                 className={styles.btnPrimary}
               >
-                {saveClientMutation.isPending ? 'Salvando...' : 'Salvar Grupo e CNPJs'}
+                {saveClientMutation.isPending ? 'Salvando...' : 'Salvar Grupo e Documentos'}
               </button>
             </div>
           </div>

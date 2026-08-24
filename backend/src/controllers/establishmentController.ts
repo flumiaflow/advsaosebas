@@ -7,39 +7,53 @@ export async function createEstablishment(req: Request, res: Response) {
 
     const tenantId = req.user!.tenantId!;
     const clientId = req.params.clientId as string;
-    const { cnpj, razaoSocial, fantasyName, type, state, city } = req.body;
+    const { cnpj, razaoSocial, fantasyName, alias, type, state, city } = req.body;
 
-    if (!cnpj || !razaoSocial) {
-      return res.status(400).json({ error: 'CNPJ e Razão Social são obrigatórios' });
+    if (!cnpj) {
+      return res.status(400).json({ error: 'Documento (CPF ou CNPJ) é obrigatório' });
     }
 
-    const cleanedCnpj = cnpj.replace(/\D/g, '');
-    if (cleanedCnpj.length !== 14) {
-      return res.status(400).json({ error: 'CNPJ inválido' });
+    const cleanedDoc = cnpj.replace(/\D/g, '');
+    if (cleanedDoc.length !== 11 && cleanedDoc.length !== 14) {
+      return res.status(400).json({ error: 'Documento inválido. Informe um CPF (11 dígitos) ou CNPJ (14 dígitos).' });
     }
 
-    // Verificar se CNPJ já existe para este tenant
+    const isCpf = cleanedDoc.length === 11;
+    if (isCpf && !razaoSocial) {
+      return res.status(400).json({ error: 'Para CPF, o nome completo da pessoa é obrigatório.' });
+    }
+    if (!isCpf && !razaoSocial) {
+      return res.status(400).json({ error: 'Razão Social é obrigatória para CNPJ.' });
+    }
+
+    // Formata o documento
+    const formattedDoc = isCpf
+      ? cleanedDoc.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+      : cleanedDoc.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+
+    // Verificar se documento já existe para este tenant
     const existing = await prisma.establishment.findUnique({
       where: {
         tenantId_cnpj: {
           tenantId,
-          cnpj: cleanedCnpj
+          cnpj: formattedDoc
         }
       }
     });
 
     if (existing) {
-      return res.status(409).json({ error: 'Este CNPJ já está cadastrado neste escritório' });
+      return res.status(409).json({ error: 'Este documento já está cadastrado neste escritório.' });
     }
 
     const establishment = await prisma.establishment.create({
       data: {
         clientId,
         tenantId,
-        cnpj: cleanedCnpj,
+        cnpj: formattedDoc,
         razaoSocial,
         fantasyName,
-        type: type || 'matriz',
+        alias: alias || null,
+        type: isCpf ? 'pessoa_fisica' : (type || 'matriz'),
         state,
         city
       }

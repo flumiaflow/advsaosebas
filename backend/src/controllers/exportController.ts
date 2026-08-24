@@ -86,7 +86,7 @@ export async function exportProcesses(req: Request, res: Response) {
         'Justiça': p.justiceType || '',
         'Status': p.status,
         'Clientes': clients,
-        'CNPJs': cnpjs,
+        'Documentos (CNPJ/CPF)': cnpjs,
         'Última Sincronização': p.lastSyncAt ? p.lastSyncAt.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'Nunca',
       };
     });

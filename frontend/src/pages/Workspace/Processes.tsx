@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../services/api';
+import { getDisplayName, isDocCpf, maskCPF } from '../../utils/formatters';
 import styles from './Processes.module.css';
 import { 
   Search, 
@@ -473,8 +474,9 @@ export default function Processes() {
   if (selectedProcessId && selectedProcess) {
     const clientParty = processDetails?.processParties?.find((pp: any) => pp.client)?.client || selectedProcess?.processParties?.find((pp: any) => pp.client)?.client;
     const estParty = processDetails?.processParties?.find((pp: any) => pp.establishment)?.establishment || selectedProcess?.processParties?.find((pp: any) => pp.establishment)?.establishment;
-    const clientName = clientParty?.name || estParty?.razaoSocial || selectedProcess?.processParties?.find((pp: any) => pp.side === 'passivo')?.party?.name || 'Materiais de Construção São Sebastião';
-    const clientCnpj = estParty?.cnpj || selectedProcess?.processParties?.find((pp: any) => pp.side === 'passivo')?.party?.document || '07.049.926/0001-10';
+    const clientName = estParty?.alias || estParty?.razaoSocial || clientParty?.name || selectedProcess?.processParties?.find((pp: any) => pp.side === 'passivo')?.party?.name || 'Empresa Monitorada';
+    const rawCnpj = estParty?.cnpj || selectedProcess?.processParties?.find((pp: any) => pp.side === 'passivo')?.party?.document || '07.049.926/0001-10';
+    const clientCnpj = isDocCpf(rawCnpj) ? maskCPF(rawCnpj) : rawCnpj;
 
     const rawMovements = processDetails?.movements || [];
     const sortedMovements = [...rawMovements].sort((a: any, b: any) => {
@@ -568,11 +570,11 @@ export default function Processes() {
                 </div>
               </div>
               <div className={styles.phMetaItem}>
-                <div className={styles.pml}>Empresa Monitorada</div>
-                <div className={styles.pmv}>{clientName}</div>
+                <div className={styles.pml}>Empresa / Pessoa Monitorada</div>
+                <div className={styles.pmv} title={clientName}>{clientName}</div>
               </div>
               <div className={styles.phMetaItem}>
-                <div className={styles.pml}>CNPJ Monitorado</div>
+                <div className={styles.pml}>Documento Monitorado</div>
                 <div className={`${styles.pmv} ${styles.mono}`}>{clientCnpj}</div>
               </div>
               <div className={styles.phMetaItem}>
@@ -1688,11 +1690,11 @@ export default function Processes() {
                       </td>
                       <td>
                         <div style={{ fontWeight: 600, color: 'var(--t1)' }}>
-                          {client?.name || 'Materiais de Construção São Sebastião'}
+                          {getDisplayName(est, client?.name)}
                         </div>
                         {est?.cnpj && (
                           <div style={{ fontSize: '11px', color: 'var(--t3)', fontFamily: 'monospace' }}>
-                            {est.cnpj}
+                            {isDocCpf(est.cnpj) ? maskCPF(est.cnpj) : est.cnpj}
                           </div>
                         )}
                       </td>

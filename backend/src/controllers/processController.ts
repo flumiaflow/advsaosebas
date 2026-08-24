@@ -91,7 +91,7 @@ export async function getProcesses(req: Request, res: Response) {
             side: true,
             party: { select: { id: true, name: true, document: true } },
             client: { select: { id: true, name: true } },
-            establishment: { select: { id: true, razaoSocial: true, cnpj: true } }
+            establishment: { select: { id: true, razaoSocial: true, cnpj: true, alias: true, type: true } }
           }
         },
         movements: {

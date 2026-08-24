@@ -92,8 +92,11 @@ export async function handleSyncJob(job: any) {
     const establishments = client?.establishments || [];
     
     // Auto-enriquece estabelecimentos cujas razões sociais não foram buscadas
+    // Pula CPFs — nome completo já foi informado manualmente no cadastro
     const { lookupCompanyByCnpj, generateCompanySearchTerms } = await import('../cnpjLookup');
     for (const est of establishments) {
+      const cleanEstDoc = est.cnpj.replace(/\D/g, '');
+      if (cleanEstDoc.length === 11) continue; // CPF: nome já informado pelo usuário
       if (!est.razaoSocial || est.razaoSocial === client?.name) {
         const info = await lookupCompanyByCnpj(est.cnpj);
         if (info && info.razaoSocial) {
@@ -112,9 +115,15 @@ export async function handleSyncJob(job: any) {
 
     for (const est of establishments) {
       try {
-        const specificTerms = generateCompanySearchTerms(est.razaoSocial, est.fantasyName);
+        // Para CPFs (pessoa física), usa o nome completo diretamente como termo de busca
+        // Para CNPJs, gera variações com sufixos societários
+        const cleanEstDoc = est.cnpj.replace(/\D/g, '');
+        const isCpfEst = cleanEstDoc.length === 11;
+        const specificTerms = isCpfEst
+          ? [est.razaoSocial.trim().toUpperCase()]
+          : generateCompanySearchTerms(est.razaoSocial, est.fantasyName);
 
-        // 2. Busca automatizada multi-tribunais via DJEN + DataJud com termos reais da empresa
+        // 2. Busca automatizada multi-tribunais via DJEN + DataJud com termos reais
         const processes = await adapter.fetchByCnpjAndTerms(est.cnpj, specificTerms);
         
         for (const p of processes) {

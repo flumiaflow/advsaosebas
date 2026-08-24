@@ -35,7 +35,7 @@ export async function getClients(req: Request, res: Response) {
           isActive: true,
           createdAt: true,
           establishments: {
-            select: { id: true, cnpj: true, razaoSocial: true, fantasyName: true, type: true },
+            select: { id: true, cnpj: true, razaoSocial: true, fantasyName: true, alias: true, type: true },
             orderBy: { createdAt: 'asc' }
           },
           _count: { select: { establishments: true } }
@@ -57,7 +57,7 @@ export async function getClients(req: Request, res: Response) {
           isActive: true,
           createdAt: true,
           establishments: {
-            select: { id: true, cnpj: true, razaoSocial: true, fantasyName: true, type: true },
+            select: { id: true, cnpj: true, razaoSocial: true, fantasyName: true, alias: true, type: true },
             orderBy: { createdAt: 'asc' }
           },
           _count: { select: { establishments: true } }
@@ -93,21 +93,36 @@ export async function createClient(req: Request, res: Response) {
     const { name, fantasyName, notes, cnpjs, cnpj } = req.body;
     if (!name) return res.status(400).json({ error: 'Nome / Razão Social é obrigatório' });
 
-    // Processa lista de CNPJs (array de strings ou objetos)
+    // Processa lista de documentos (array de strings ou objetos com alias/razaoSocial)
     const rawList: any[] = Array.isArray(cnpjs) ? cnpjs : (cnpj ? [cnpj] : []);
-    const validCnpjs = rawList
-      .map((c: any) => typeof c === 'string' ? c.replace(/\D/g, '') : (c?.cnpj ? String(c.cnpj).replace(/\D/g, '') : ''))
-      .filter((c: string) => c.length === 14)
-      .map((c: string) => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'));
+    const formatDoc = (c: string) => c.length === 11
+      ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+      : c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 
-    const uniqueCnpjs = Array.from(new Set(validCnpjs));
+    const parsedDocs = rawList.map((c: any) => {
+      if (typeof c === 'string') {
+        const clean = c.replace(/\D/g, '');
+        return { clean, formatted: formatDoc(clean), alias: null as string | null, razaoSocial: null as string | null };
+      }
+      const clean = String(c.cnpj || c.document || c).replace(/\D/g, '');
+      return { clean, formatted: formatDoc(clean), alias: c.alias || null, razaoSocial: c.razaoSocial || null };
+    }).filter(d => d.clean.length === 11 || d.clean.length === 14);
 
-    // Checa se algum CNPJ já pertence a outro cliente deste tenant
-    if (uniqueCnpjs.length > 0) {
+    // Deduplica
+    const seen = new Set<string>();
+    const uniqueDocs = parsedDocs.filter(d => {
+      if (seen.has(d.formatted)) return false;
+      seen.add(d.formatted);
+      return true;
+    });
+
+    // Checa se algum documento já pertence a outro cliente deste tenant
+    const formattedList = uniqueDocs.map(d => d.formatted);
+    if (formattedList.length > 0) {
       const existingEsts = await prisma.establishment.findMany({
         where: {
           tenantId,
-          cnpj: { in: uniqueCnpjs }
+          cnpj: { in: formattedList }
         },
         include: { client: { select: { name: true } } }
       });
@@ -115,22 +130,25 @@ export async function createClient(req: Request, res: Response) {
       if (existingEsts.length > 0) {
         const conflict = existingEsts[0];
         return res.status(409).json({ 
-          error: `O CNPJ ${conflict.cnpj} já está cadastrado na empresa "${conflict.client?.name || 'outra empresa'}".` 
+          error: `O documento ${conflict.cnpj} já está cadastrado na empresa "${conflict.client?.name || 'outra empresa'}".` 
         });
       }
     }
 
     // Consulta automática da Razão Social oficial de cada CNPJ via BrasilAPI / ReceitaWS
+    // Para CPFs, pula o enriquecimento — nome completo é informado pelo usuário
     const { lookupCompanyByCnpj } = await import('../services/cnpjLookup');
     const establishmentsData = await Promise.all(
-      uniqueCnpjs.map(async (cnpjStr, idx) => {
-        const companyInfo = await lookupCompanyByCnpj(cnpjStr);
+      uniqueDocs.map(async (doc, idx) => {
+        const isCpf = doc.clean.length === 11;
+        const companyInfo = isCpf ? null : await lookupCompanyByCnpj(doc.formatted);
         return {
           tenantId: tenantId!,
-          cnpj: cnpjStr,
-          razaoSocial: companyInfo?.razaoSocial || name,
+          cnpj: doc.formatted,
+          razaoSocial: doc.razaoSocial || companyInfo?.razaoSocial || name,
           fantasyName: companyInfo?.fantasyName || fantasyName || name,
-          type: idx === 0 ? 'matriz' : 'filial'
+          alias: doc.alias || null,
+          type: isCpf ? 'pessoa_fisica' : (idx === 0 ? 'matriz' : 'filial')
         };
       })
     );
@@ -160,14 +178,14 @@ export async function createClient(req: Request, res: Response) {
       action: 'CLIENT_CREATED',
       entityType: 'Client',
       entityId: client.id,
-      metadata: { name, cnpjsCount: uniqueCnpjs.length }
+      metadata: { name, docsCount: uniqueDocs.length }
     });
 
     return res.status(201).json(client);
   } catch (error: any) {
     console.error('Create client error:', error);
     if (error.code === 'P2002') {
-      return res.status(409).json({ error: 'Um dos CNPJs informados já está cadastrado para este escritório.' });
+      return res.status(409).json({ error: 'Um dos documentos informados já está cadastrado para este escritório.' });
     }
     return res.status(500).json({ error: 'Erro interno ao criar cliente' });
   }
@@ -261,32 +279,48 @@ export async function updateClient(req: Request, res: Response) {
       }
     });
 
-    // Se cnpjs foi enviado, sincroniza estabelecimentos
+    // Se cnpjs foi enviado, sincroniza estabelecimentos (aceita strings ou objetos com alias)
     if (Array.isArray(cnpjs)) {
-      const validCnpjs = cnpjs
-        .map(c => typeof c === 'string' ? c.replace(/\D/g, '') : (c?.cnpj?.replace(/\D/g, '') || ''))
-        .filter(c => c.length === 14)
-        .map(c => c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'));
-      const uniqueCnpjs = Array.from(new Set(validCnpjs));
+      const formatDoc = (c: string) => c.length === 11
+        ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+        : c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+
+      const parsedDocs = cnpjs.map((c: any) => {
+        if (typeof c === 'string') {
+          const clean = c.replace(/\D/g, '');
+          return { clean, formatted: formatDoc(clean), alias: null as string | null, razaoSocial: null as string | null };
+        }
+        const clean = String(c.cnpj || c.document || c).replace(/\D/g, '');
+        return { clean, formatted: formatDoc(clean), alias: c.alias || null, razaoSocial: c.razaoSocial || null };
+      }).filter((d: any) => d.clean.length === 11 || d.clean.length === 14);
+
+      const seen = new Set<string>();
+      const uniqueDocs = parsedDocs.filter((d: any) => {
+        if (seen.has(d.formatted)) return false;
+        seen.add(d.formatted);
+        return true;
+      });
 
       const existingEsts = existingClient.establishments;
-      const existingCnpjSet = new Set(existingEsts.map(e => e.cnpj));
-      const targetCnpjSet = new Set(uniqueCnpjs);
+      const existingDocSet = new Set(existingEsts.map(e => e.cnpj));
+      const targetDocSet = new Set(uniqueDocs.map((d: any) => d.formatted));
 
-      // Novos CNPJs a adicionar
-      const toCreate = uniqueCnpjs.filter(c => !existingCnpjSet.has(c));
+      // Novos documentos a adicionar
+      const toCreate = uniqueDocs.filter((d: any) => !existingDocSet.has(d.formatted));
       if (toCreate.length > 0) {
         const { lookupCompanyByCnpj } = await import('../services/cnpjLookup');
         const establishmentsToCreate = await Promise.all(
-          toCreate.map(async (cnpjStr, idx) => {
-            const info = await lookupCompanyByCnpj(cnpjStr);
+          toCreate.map(async (doc: any, idx: number) => {
+            const isCpf = doc.clean.length === 11;
+            const info = isCpf ? null : await lookupCompanyByCnpj(doc.formatted);
             return {
               tenantId: existingClient.tenantId,
               clientId: id,
-              cnpj: cnpjStr,
-              razaoSocial: info?.razaoSocial || name || existingClient.name,
+              cnpj: doc.formatted,
+              razaoSocial: doc.razaoSocial || info?.razaoSocial || name || existingClient.name,
               fantasyName: info?.fantasyName || fantasyName || existingClient.fantasyName || name,
-              type: existingEsts.length === 0 && idx === 0 ? 'matriz' : 'filial'
+              alias: doc.alias || null,
+              type: isCpf ? 'pessoa_fisica' : (existingEsts.length === 0 && idx === 0 ? 'matriz' : 'filial')
             };
           })
         );
@@ -296,8 +330,19 @@ export async function updateClient(req: Request, res: Response) {
         });
       }
 
-      // CNPJs a remover
-      const toRemove = existingEsts.filter(e => !targetCnpjSet.has(e.cnpj));
+      // Atualiza alias de documentos existentes que foram reenviados
+      for (const doc of uniqueDocs) {
+        const existingEst = existingEsts.find((e: any) => e.cnpj === doc.formatted);
+        if (existingEst && doc.alias !== undefined) {
+          await prisma.establishment.update({
+            where: { id: existingEst.id },
+            data: { alias: doc.alias || null }
+          });
+        }
+      }
+
+      // Documentos a remover
+      const toRemove = existingEsts.filter(e => !targetDocSet.has(e.cnpj));
       if (toRemove.length > 0) {
         await prisma.establishment.deleteMany({
           where: { id: { in: toRemove.map(e => e.id) } }

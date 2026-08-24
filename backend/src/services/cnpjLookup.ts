@@ -15,6 +15,10 @@ export function generateCompanySearchTerms(razaoSocial: string, fantasyName?: st
     const cleanRazao = razaoSocial.trim().toUpperCase();
     terms.add(cleanRazao);
     
+    // Se não tem indicadores de pessoa jurídica, retorna apenas o nome limpo (é PF)
+    const hasCorpIndicator = /\b(LTDA|EIRELI|S\.?A\.?|S\/A|ME|EPP|MEI)\b/i.test(cleanRazao);
+    if (!hasCorpIndicator) return Array.from(terms);
+
     // Remove sufixos societários (LTDA, EIRELI, ME, S.A., EPP, S/A)
     const baseName = cleanRazao
       .replace(/\s*-\s*ME\b/g, '')

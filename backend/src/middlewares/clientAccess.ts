@@ -3,7 +3,7 @@ import { prisma } from '../config/db';
 
 export async function clientAccessMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
-    const id = req.params.id as string; // This expects the route parameter to be the client id, e.g. /clients/:id
+    const id = (req.params.id || req.params.clientId) as string;
     const user = req.user;
 
     if (!user) {

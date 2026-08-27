@@ -1,61 +1,24 @@
 import crypto from 'crypto';
+import dotenv from 'dotenv';
+dotenv.config();
 
-const ALGORITHM = 'aes-256-gcm';
-const KEY_LENGTH = 32; // 256 bits
-const IV_LENGTH = 12; // 96 bits for GCM
-const AUTH_TAG_LENGTH = 16; // 128 bits for GCM
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default_secret_key_needs_change_'; // 32 chars
+const IV_LENGTH = 16;
 
-// ENCRYPTION_KEY must be a 32-byte hex string or exactly 32 chars
-function getEncryptionKey(): Buffer {
-  const keyStr = process.env.ENCRYPTION_KEY;
-  if (!keyStr) {
-    throw new Error('ENCRYPTION_KEY environment variable is not set.');
-  }
-  
-  const key = Buffer.from(keyStr, 'utf-8');
-  if (key.length !== KEY_LENGTH) {
-    throw new Error('ENCRYPTION_KEY must be exactly 32 bytes long.');
-  }
-  
-  return key;
-}
-
-export function encrypt(text: string): { encryptedText: string; iv: string } {
-  const key = getEncryptionKey();
+export function encrypt(text: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  
-  const authTag = cipher.getAuthTag().toString('hex');
-  
-  // We return the iv so it can be saved in the database
-  // We append the authTag to the encrypted text (format: authTag:encryptedText)
-  // because GCM needs the authTag for decryption
-  return {
-    encryptedText: `${authTag}:${encrypted}`,
-    iv: iv.toString('hex')
-  };
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)), iv);
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
 }
 
-export function decrypt(encryptedData: string, ivHex: string): string {
-  const key = getEncryptionKey();
-  const iv = Buffer.from(ivHex, 'hex');
-  
-  const parts = encryptedData.split(':');
-  if (parts.length !== 2) {
-    throw new Error('Invalid encrypted text format. Expected authTag:encryptedText');
-  }
-  
-  const authTag = Buffer.from(parts[0], 'hex');
-  const encryptedText = parts[1];
-  
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-  
-  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  
-  return decrypted;
+export function decrypt(text: string): string {
+  const textParts = text.split(':');
+  const iv = Buffer.from(textParts.shift() as string, 'hex');
+  const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY.padEnd(32, '0').slice(0, 32)), iv);
+  let decrypted = decipher.update(encryptedText);
+  decrypted = Buffer.concat([decrypted, decipher.final()]);
+  return decrypted.toString();
 }

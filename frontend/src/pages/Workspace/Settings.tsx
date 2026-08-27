@@ -4,6 +4,7 @@ import { api } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import { Clock, Calendar, Globe, CheckCircle, Sliders, Plus, X, ShieldAlert, History, RefreshCw } from 'lucide-react';
 import styles from '../Backoffice/Backoffice.module.css';
+import SmtpSettings from './SmtpSettings';
 
 const DAYS_OF_WEEK = [
   { id: 0, label: 'Dom', full: 'Domingo' },
@@ -530,6 +531,8 @@ export default function Settings() {
           )}
         </form>
       </div>
+
+      <SmtpSettings />
 
       {/* 3. Card: Integrações Premium */}
       {isSupervisor && (

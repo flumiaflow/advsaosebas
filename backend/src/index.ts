@@ -12,6 +12,7 @@ import { connectRedis } from './config/redis';
 import passport from './config/passport';
 import { startScheduler } from './services/sync/scheduler';
 import { startLifecycleJobs } from './services/lifecycle';
+import './utils/emailService';
 import { initSocketIO } from './socket';
 import authRoutes from './routes/authRoutes';
 import tenantRoutes from './routes/tenantRoutes';
@@ -30,6 +31,7 @@ import dashboardRoutes from './routes/dashboardRoutes';
 import settingsRoutes from './routes/settingsRoutes';
 import systemSettingsRoutes from './routes/systemSettingsRoutes';
 import partyRoutes from './routes/partyRoutes';
+import emailLogRoutes from './routes/emailLogRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -79,6 +81,7 @@ app.use('/api/import', importRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/email-logs', emailLogRoutes);
 
 // Healthcheck endpoint
 app.get('/health', (req, res) => {

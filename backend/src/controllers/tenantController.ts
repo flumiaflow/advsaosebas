@@ -151,3 +151,129 @@ export async function updateTenant(req: Request, res: Response) {
     return res.status(500).json({ error: 'Erro ao atualizar escritório' });
   }
 }
+
+// SMTP Config
+
+export async function getTenantSmtp(req: Request, res: Response) {
+  try {
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) return res.status(403).json({ error: 'Acesso negado' });
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        smtpHost: true,
+        smtpPort: true,
+        smtpSecure: true,
+        smtpUser: true,
+        smtpFrom: true,
+        smtpPass: true
+      }
+    });
+
+    if (!tenant) return res.status(404).json({ error: 'Tenant não encontrado' });
+
+    return res.status(200).json({
+      smtpHost: tenant.smtpHost,
+      smtpPort: tenant.smtpPort,
+      smtpSecure: tenant.smtpSecure,
+      smtpUser: tenant.smtpUser,
+      smtpFrom: tenant.smtpFrom,
+      hasPassword: !!tenant.smtpPass
+    });
+  } catch (error) {
+    console.error('getTenantSmtp error:', error);
+    return res.status(500).json({ error: 'Erro interno' });
+  }
+}
+
+export async function updateTenantSmtp(req: Request, res: Response) {
+  try {
+    if (req.user?.role !== 'supervisor' && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Acesso restrito' });
+    }
+
+    const tenantId = req.user?.tenantId;
+    if (!tenantId) return res.status(403).json({ error: 'Acesso negado' });
+
+    const { smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass, smtpFrom } = req.body;
+
+    const data: any = {
+      smtpHost,
+      smtpPort,
+      smtpSecure,
+      smtpUser,
+      smtpFrom
+    };
+
+    if (smtpPass) {
+      const { encrypt } = await import('../utils/crypto');
+      data.smtpPass = encrypt(smtpPass);
+    }
+
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data
+    });
+
+    return res.status(200).json({ message: 'Configurações de SMTP atualizadas' });
+  } catch (error) {
+    console.error('updateTenantSmtp error:', error);
+    return res.status(500).json({ error: 'Erro ao atualizar configurações' });
+  }
+}
+
+export async function testTenantSmtp(req: Request, res: Response) {
+  try {
+    if (req.user?.role !== 'supervisor' && req.user?.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Acesso restrito' });
+    }
+    
+    const { smtpHost, smtpPort, smtpSecure, smtpUser, smtpPass, smtpFrom } = req.body;
+    
+    // If no pass in body, get from DB
+    let password = smtpPass;
+    if (!password) {
+      const tenantId = req.user?.tenantId;
+      if (!tenantId) return res.status(403).json({ error: 'Acesso negado' });
+      const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+      if (tenant?.smtpPass) {
+        const { decrypt } = await import('../utils/crypto');
+        password = decrypt(tenant.smtpPass);
+      }
+    }
+
+    if (!smtpHost || !smtpPort || !smtpUser || !password) {
+      return res.status(400).json({ error: 'Dados incompletos para testar SMTP' });
+    }
+
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: Number(smtpPort),
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: password
+      }
+    });
+
+    await transporter.verify();
+
+    const mailOptions = {
+      from: smtpFrom || smtpUser,
+      to: req.user!.email,
+      subject: 'JurisWatch - Teste de Configuração SMTP',
+      text: 'Sua configuração de envio de e-mails está funcionando perfeitamente!',
+      html: '<h3>JurisWatch</h3><p>Sua configuração de envio de e-mails está funcionando perfeitamente!</p>'
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    return res.status(200).json({ message: 'Conexão bem sucedida. Email de teste enviado.' });
+  } catch (error: any) {
+    console.error('testTenantSmtp error:', error);
+    return res.status(400).json({ error: 'Falha na conexão SMTP: ' + (error.message || 'Verifique as credenciais') });
+  }
+}
+

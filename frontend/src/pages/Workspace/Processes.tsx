@@ -32,7 +32,9 @@ import {
   ArrowUpDown,
   RotateCcw,
   Briefcase,
-  Loader2
+  Loader2,
+  Bell,
+  EyeOff
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -131,7 +133,7 @@ export default function Processes() {
   const [valueFilter, setValueFilter] = useState('all');
   const [authorSearch, setAuthorSearch] = useState('');
   const [sortBy, setSortBy] = useState('recent');
-  const [quickPill, setQuickPill] = useState<'all' | 'active' | 'trabalhista' | 'civel' | 'with_mov'>('all');
+  const [quickPill, setQuickPill] = useState<'all' | 'active' | 'trabalhista' | 'civel' | 'with_mov' | 'unseen'>('all');
   const [isAdvFilterOpen, setIsAdvFilterOpen] = useState(false);
   const [sortAsc, setSortAsc] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -219,7 +221,7 @@ export default function Processes() {
       if (movCount > 0) with_mov++;
     });
 
-    return { all: processes.length, active, trabalhista, civel, with_mov };
+    return { all: processes.length, active, trabalhista, civel, with_mov, unseen: processes.filter((p: any) => p.isNew || p.hasUnseenUpdates).length };
   }, [processes]);
 
   // Active filter count
@@ -295,6 +297,23 @@ export default function Processes() {
     }
   });
 
+  // Marcar todos os processos como vistos
+  const markAllSeenMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/processes/mark-all-seen', {
+        until_timestamp: new Date().toISOString()
+      });
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'processes'] });
+      toast.success('Todos os processos foram marcados como vistos!');
+    },
+    onError: () => {
+      toast.error('Erro ao marcar processos como vistos');
+    }
+  });
+
   const handleSyncCurrent = () => {
     if (selectedProcess?.id) {
       syncProcessMutation.mutate(selectedProcess.id);
@@ -334,6 +353,7 @@ export default function Processes() {
     return processes.filter((p: any) => {
       // Quick pill filter
       if (quickPill === 'active' && !(p.status === 'active' || p.status === 'ativo' || p.status === 'Ativo')) return false;
+      if (quickPill === 'unseen' && !p.isNew && !p.hasUnseenUpdates) return false;
       if (quickPill === 'trabalhista') {
         const txt = `${p.justiceType || ''} ${p.tribunal || ''} ${p.className || ''}`.toLowerCase();
         if (!txt.includes('trab') && !txt.includes('trt') && !txt.includes('tst')) return false;
@@ -491,7 +511,7 @@ export default function Processes() {
         <div className={styles.topbar}>
           <div style={{ flex: 1 }}>
             <div className={styles.bc}>
-              <a onClick={() => setSelectedProcessId(null)} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+              <a onClick={() => { setSelectedProcessId(null); queryClient.invalidateQueries({ queryKey: ['workspace', 'processes'] }); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
                 <ArrowLeft size={14} /> Processos
               </a>
               <span className={styles.sep}>›</span>
@@ -1280,6 +1300,17 @@ export default function Processes() {
       <div className={styles.topbar}>
         <h1>Processos Judiciais Monitorados</h1>
         <div className={styles.tba}>
+          {quickCounts.unseen > 0 && (
+            <button 
+              className={styles.markSeenBtn}
+              onClick={() => markAllSeenMutation.mutate()}
+              disabled={markAllSeenMutation.isPending}
+              title="Marcar todos os processos como vistos"
+            >
+              <Eye size={13} />
+              {markAllSeenMutation.isPending ? 'Marcando...' : `Marcar todos como vistos (${quickCounts.unseen})`}
+            </button>
+          )}
           <button className={`${styles.btnS} ${styles.ghost}`}>Exportar CSV</button>
         </div>
       </div>
@@ -1288,7 +1319,7 @@ export default function Processes() {
         {/* SYNC TRACKER BANNER */}
         {syncStatus && syncStatus.status !== 'none' && (
           <div style={{ 
-            background: syncStatus.status === 'running' ? 'linear-gradient(90deg, #1e3a8a, #2563eb)' : syncStatus.status === 'success' ? 'linear-gradient(90deg, #064e3b, #047857)' : 'linear-gradient(90deg, #7f1d1d, #b91c1c)', 
+            background: syncStatus.status === 'running' ? 'linear-gradient(90deg, #1e3a8a, #2563eb)' : syncStatus.status === 'success' ? 'linear-gradient(90deg, #064e3b, #047857)' : syncStatus.status === 'cancelled' ? 'linear-gradient(90deg, #854d0e, #a16207)' : 'linear-gradient(90deg, #7f1d1d, #b91c1c)', 
             color: '#fff', 
             padding: '0.85rem 1.5rem', 
             display: 'flex', 
@@ -1296,19 +1327,21 @@ export default function Processes() {
             gap: '1rem', 
             borderRadius: '10px', 
             marginBottom: '1.25rem', 
-            border: `1px solid ${syncStatus.status === 'running' ? 'rgba(59, 130, 246, 0.5)' : syncStatus.status === 'success' ? 'rgba(16, 185, 129, 0.5)' : 'rgba(239, 68, 68, 0.5)'}`, 
-            boxShadow: `0 4px 15px ${syncStatus.status === 'running' ? 'rgba(37, 99, 235, 0.25)' : syncStatus.status === 'success' ? 'rgba(4, 120, 87, 0.25)' : 'rgba(185, 28, 28, 0.25)'}`
+            border: `1px solid ${syncStatus.status === 'running' ? 'rgba(59, 130, 246, 0.5)' : syncStatus.status === 'success' ? 'rgba(16, 185, 129, 0.5)' : syncStatus.status === 'cancelled' ? 'rgba(234, 179, 8, 0.5)' : 'rgba(239, 68, 68, 0.5)'}`, 
+            boxShadow: `0 4px 15px ${syncStatus.status === 'running' ? 'rgba(37, 99, 235, 0.25)' : syncStatus.status === 'success' ? 'rgba(4, 120, 87, 0.25)' : syncStatus.status === 'cancelled' ? 'rgba(202, 138, 4, 0.25)' : 'rgba(185, 28, 28, 0.25)'}`
           }}>
             {syncStatus.status === 'running' ? (
               <Loader2 size={24} className="animate-spin" />
             ) : syncStatus.status === 'success' ? (
               <CheckCircle size={24} color="#34d399" />
+            ) : syncStatus.status === 'cancelled' ? (
+              <AlertCircle size={24} color="#fde047" />
             ) : (
               <AlertCircle size={24} color="#f87171" />
             )}
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 600, fontSize: '0.95rem', letterSpacing: '-0.2px' }}>
-                {syncStatus.status === 'running' ? 'Sincronização em Andamento' : syncStatus.status === 'success' ? 'Última Sincronização Concluída' : 'Erro na Última Sincronização'}
+                {syncStatus.status === 'running' ? 'Sincronização em Andamento' : syncStatus.status === 'success' ? 'Última Sincronização Concluída' : syncStatus.status === 'cancelled' ? 'Última Sincronização Cancelada' : 'Erro na Última Sincronização'}
               </div>
               <div style={{ fontSize: '0.8rem', opacity: 0.9, marginTop: '2px' }}>
                 {syncStatus.status === 'running' 
@@ -1423,6 +1456,16 @@ export default function Processes() {
                 <Layers size={12} />
                 Com Movimentações
                 <span className={styles.pillCount}>{quickCounts.with_mov}</span>
+              </button>
+              <button 
+                className={`${styles.pillBtn} ${styles.pillUnseen} ${quickPill === 'unseen' ? styles.pillActive : ''}`}
+                onClick={() => { setQuickPill(quickPill === 'unseen' ? 'all' : 'unseen'); setCurrentPage(1); }}
+              >
+                <Bell size={12} />
+                Novidades
+                {quickCounts.unseen > 0 && (
+                  <span className={styles.pillCount} style={{ background: 'rgba(59, 130, 246, 0.3)', color: '#60a5fa' }}>{quickCounts.unseen}</span>
+                )}
               </button>
             </div>
 
@@ -1672,6 +1715,7 @@ export default function Processes() {
                   return (
                     <tr 
                       key={proc.id} 
+                      className={proc.isNew ? styles.rowNew : proc.hasUnseenUpdates ? styles.rowUpdated : ''}
                       onClick={() => {
                         setSelectedProcessId(proc.id);
                         setActiveTab('overview');
@@ -1679,9 +1723,21 @@ export default function Processes() {
                       title="Clique para abrir o Resumo da Causa, detalhes, partes e linha do tempo"
                     >
                       <td>
-                        <span className={styles.mono} style={{ fontSize: '11px', fontWeight: 700, color: 'var(--blue)', background: 'rgba(37, 99, 235, 0.1)', border: '1px solid rgba(37, 99, 235, 0.25)', padding: '2px 6px', borderRadius: '4px' }}>
-                          #PRC-{proc.id ? proc.id.slice(0, 8).toUpperCase() : '0000'}
-                        </span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span className={styles.mono} style={{ fontSize: '11px', fontWeight: 700, color: 'var(--blue)', background: 'rgba(37, 99, 235, 0.1)', border: '1px solid rgba(37, 99, 235, 0.25)', padding: '2px 6px', borderRadius: '4px' }}>
+                            #PRC-{proc.id ? proc.id.slice(0, 8).toUpperCase() : '0000'}
+                          </span>
+                          {proc.isNew && (
+                            <span className={styles.badgeNew}>
+                              <Sparkles size={10} /> Novo
+                            </span>
+                          )}
+                          {!proc.isNew && proc.hasUnseenUpdates && (
+                            <span className={styles.badgeUpdated}>
+                              <Bell size={10} /> Atualizado
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <div className={styles.mono} style={{ fontWeight: 600, color: 'var(--blue)' }}>

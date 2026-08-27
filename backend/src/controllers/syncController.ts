@@ -181,3 +181,79 @@ export async function getSyncJobDetails(req: Request, res: Response) {
     return res.status(500).json({ error: 'Erro interno ao buscar detalhes' });
   }
 }
+
+export async function cancelSync(req: Request, res: Response) {
+  try {
+    const clientId = (req.params.id || req.params.clientId) as string;
+    let tenantId = req.user?.tenantId;
+    if (!tenantId && req.user?.role === 'super_admin') {
+      const firstTenant = await prisma.tenant.findFirst();
+      tenantId = firstTenant?.id;
+    }
+    const userId = req.user?.userId;
+
+    if (!tenantId) return res.status(401).json({ error: 'Não autorizado' });
+
+    const updatedJobs = await prisma.syncJob.updateMany({
+      where: { tenantId, clientId, status: 'running' },
+      data: {
+        status: 'cancelled',
+        errorMessage: 'Sincronização cancelada pelo usuário.',
+        finishedAt: new Date()
+      }
+    });
+
+    if (updatedJobs.count > 0) {
+      // Remover o Throttle para permitir nova sincronização imediata
+      await prisma.syncThrottle.deleteMany({
+        where: { clientId }
+      });
+
+      // Gravar na auditoria
+      if (userId) {
+        const { logAuditAction } = await import('../middlewares/auditLogger');
+        await logAuditAction({
+          tenantId,
+          userId,
+          action: 'SYNC_CANCELLED',
+          metadata: { clientId, message: 'Varredura abortada manualmente.' }
+        });
+      }
+
+      const { getIO } = await import('../../socket');
+      const io = getIO();
+      io.to(`tenant:${tenantId}`).emit('sync:cancelled', {
+        clientId,
+        success: false,
+        error: 'Sincronização cancelada pelo usuário.'
+      });
+      return res.status(200).json({ message: 'Sincronização cancelada com sucesso.' });
+    } else {
+      return res.status(404).json({ error: 'Nenhuma sincronização em andamento encontrada.' });
+    }
+  } catch (error) {
+    console.error('Cancel sync error:', error);
+    return res.status(500).json({ error: 'Erro interno ao cancelar sincronização' });
+  }
+}
+
+export async function getActiveSyncs(req: Request, res: Response) {
+  try {
+    let tenantId = req.user?.tenantId;
+    if (!tenantId && req.user?.role === 'super_admin') {
+      const firstTenant = await prisma.tenant.findFirst();
+      tenantId = firstTenant?.id;
+    }
+    if (!tenantId) return res.status(401).json({ error: 'Não autorizado' });
+
+    const activeJobs = await prisma.syncJob.findMany({
+      where: { tenantId, status: 'running' },
+      select: { clientId: true }
+    });
+
+    return res.status(200).json(activeJobs.map(j => j.clientId));
+  } catch (error) {
+    console.error('Get active syncs error:', error);
+    return res.status(500).json({ error: 'Erro interno' });
+  }
+}

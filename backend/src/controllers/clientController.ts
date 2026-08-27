@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { logAuditAction } from '../middlewares/auditLogger';
 import { getCache, setCache } from '../config/redis';
+import { addSyncJob } from '../services/sync/worker';
 
 export async function getClients(req: Request, res: Response) {
   try {
@@ -181,6 +182,17 @@ export async function createClient(req: Request, res: Response) {
       metadata: { name, docsCount: uniqueDocs.length }
     });
 
+    try {
+      if (process.env.NO_REDIS === 'true') {
+        const { handleSyncJob } = await import('../services/sync/worker');
+        handleSyncJob({ data: { tenantId, clientId: client.id, triggeredBy: 'Automação (Cadastro)' } }).catch(console.error);
+      } else {
+        await addSyncJob(tenantId, client.id, 'Automação (Cadastro)');
+      }
+    } catch (e) {
+      console.error("Falha ao agendar sync automático no create", e);
+    }
+
     return res.status(201).json(client);
   } catch (error: any) {
     console.error('Create client error:', error);
@@ -279,6 +291,45 @@ export async function updateClient(req: Request, res: Response) {
       }
     });
 
+    // Se o cliente foi inativado, aborta sincronizações em andamento
+    if (isActive === false && existingClient.isActive === true) {
+      const cancelledJobs = await prisma.syncJob.updateMany({
+        where: { tenantId, clientId: id, status: 'running' },
+        data: {
+          status: 'cancelled',
+          errorMessage: 'Sincronização abortada: cliente foi inativado.',
+          finishedAt: new Date()
+        }
+      });
+
+      if (cancelledJobs.count > 0) {
+        // Remove throttle
+        await prisma.syncThrottle.deleteMany({ where: { clientId: id } });
+
+        // Notifica frontend
+        try {
+          const { getIO } = await import('../../socket');
+          const io = getIO();
+          io.to(`tenant:${tenantId}`).emit('sync:cancelled', {
+            clientId: id,
+            success: false,
+            error: 'Cliente inativado — sincronização abortada.'
+          });
+        } catch (e) {}
+      }
+
+      await logAuditAction({
+        tenantId,
+        userId: req.user!.userId,
+        action: 'CLIENT_DEACTIVATED',
+        entityType: 'Client',
+        entityId: id,
+        metadata: { name: existingClient.name }
+      });
+    }
+
+    let shouldTriggerSync = false;
+
     // Se cnpjs foi enviado, sincroniza estabelecimentos (aceita strings ou objetos com alias)
     if (Array.isArray(cnpjs)) {
       const formatDoc = (c: string) => c.length === 11
@@ -308,6 +359,7 @@ export async function updateClient(req: Request, res: Response) {
       // Novos documentos a adicionar
       const toCreate = uniqueDocs.filter((d: any) => !existingDocSet.has(d.formatted));
       if (toCreate.length > 0) {
+        shouldTriggerSync = true;
         const { lookupCompanyByCnpj } = await import('../services/cnpjLookup');
         const establishmentsToCreate = await Promise.all(
           toCreate.map(async (doc: any, idx: number) => {
@@ -366,6 +418,19 @@ export async function updateClient(req: Request, res: Response) {
         _count: { select: { establishments: true } }
       }
     });
+
+    if (shouldTriggerSync && isActive !== false) {
+      try {
+        if (process.env.NO_REDIS === 'true') {
+          const { handleSyncJob } = await import('../services/sync/worker');
+          handleSyncJob({ data: { tenantId: existingClient.tenantId, clientId: id, triggeredBy: 'Automação (Atualização)' } }).catch(console.error);
+        } else {
+          await addSyncJob(existingClient.tenantId, id, 'Automação (Atualização)');
+        }
+      } catch (e) {
+        console.error("Falha ao agendar sync automático no update", e);
+      }
+    }
 
     return res.status(200).json(refreshedClient);
   } catch (error) {

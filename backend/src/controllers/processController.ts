@@ -11,58 +11,58 @@ export async function getProcesses(req: Request, res: Response) {
     }
     if (!tenantId) return res.status(403).json({ error: 'Acesso negado' });
 
+    const userId = req.user?.userId;
     const { clientId, search, limit, offset } = req.query;
 
     const cacheKey = `procs:${tenantId}:${clientId || 'all'}:${search || ''}:${limit || '500'}:${offset || '0'}`;
     const cached = await getCache<any>(cacheKey);
-    if (cached) {
-      return res.status(200).json(cached);
-    }
 
     let processIds: string[] | undefined;
 
-    if (clientId) {
-      const establishments = await prisma.establishment.findMany({
-        where: { clientId: String(clientId), tenantId },
-        select: { id: true }
-      });
-      const establishmentIds = establishments.map(e => e.id);
+    if (!cached) {
+      if (clientId) {
+        const establishments = await prisma.establishment.findMany({
+          where: { clientId: String(clientId), tenantId },
+          select: { id: true }
+        });
+        const establishmentIds = establishments.map(e => e.id);
 
-      const parties = await prisma.processParty.findMany({
-        where: {
-          tenantId,
-          isActive: true,
-          OR: [
-            { clientId: String(clientId) },
-            ...(establishmentIds.length > 0 ? [{ establishmentId: { in: establishmentIds } }] : [])
-          ]
-        },
-        select: { processId: true }
-      });
-      processIds = parties.map(p => p.processId);
-    } else {
-      // GOLDEN RULE: Never show processes that are not explicitly linked to an active client
-      const activeClients = await prisma.client.findMany({
-        where: { tenantId, isActive: true },
-        select: { id: true }
-      });
-      const activeClientIds = activeClients.map(c => c.id);
+        const parties = await prisma.processParty.findMany({
+          where: {
+            tenantId,
+            isActive: true,
+            OR: [
+              { clientId: String(clientId) },
+              ...(establishmentIds.length > 0 ? [{ establishmentId: { in: establishmentIds } }] : [])
+            ]
+          },
+          select: { processId: true }
+        });
+        processIds = parties.map(p => p.processId);
+      } else {
+        // GOLDEN RULE: Never show processes that are not explicitly linked to an active client
+        const activeClients = await prisma.client.findMany({
+          where: { tenantId, isActive: true },
+          select: { id: true }
+        });
+        const activeClientIds = activeClients.map(c => c.id);
 
-      const parties = await prisma.processParty.findMany({
-        where: {
-          tenantId,
-          isActive: true,
-          clientId: { in: activeClientIds }
-        },
-        select: { processId: true }
-      });
-      processIds = parties.map(p => p.processId);
+        const parties = await prisma.processParty.findMany({
+          where: {
+            tenantId,
+            isActive: true,
+            clientId: { in: activeClientIds }
+          },
+          select: { processId: true }
+        });
+        processIds = parties.map(p => p.processId);
+      }
     }
 
     const take = limit ? Math.min(parseInt(String(limit)), 500) : 500;
     const skip = offset ? parseInt(String(offset)) : 0;
 
-    const processes = await prisma.process.findMany({
+    const processes = cached || await prisma.process.findMany({
       where: {
         tenantId,
         ...(processIds && { id: { in: processIds } })
@@ -108,8 +108,35 @@ export async function getProcesses(req: Request, res: Response) {
       }
     });
 
-    // Cache de 30 segundos
-    await setCache(cacheKey, processes, 30);
+    // Cache de 30 segundos (dados dos processos, sem estado de visualização)
+    if (!cached) {
+      await setCache(cacheKey, processes, 30);
+    }
+
+    // Enriquecer com estado de visualização per-user (NÃO cacheado)
+    if (userId && processes.length > 0) {
+      const procIds = processes.map((p: any) => p.id);
+      const views = await prisma.processView.findMany({
+        where: { userId, processId: { in: procIds } }
+      });
+      const viewMap = new Map(views.map(v => [v.processId, v]));
+
+      const enriched = processes.map((proc: any) => {
+        const view = viewMap.get(proc.id);
+        const latestMovementDate = proc.movements?.[0]?.eventDate
+          ? new Date(proc.movements[0].eventDate)
+          : null;
+
+        const isNew = !view;
+        const hasUnseenUpdates = !isNew && latestMovementDate
+          ? (!view.lastSeenMovementDate || latestMovementDate > view.lastSeenMovementDate)
+          : false;
+
+        return { ...proc, isNew, hasUnseenUpdates };
+      });
+
+      return res.status(200).json(enriched);
+    }
 
     return res.status(200).json(processes);
   } catch (error) {
@@ -121,6 +148,7 @@ export async function getProcesses(req: Request, res: Response) {
 export async function getProcessDetails(req: Request, res: Response) {
   try {
     const id = req.params.id as string;
+    const userId = req.user?.userId;
     let tenantId = req.user?.tenantId;
     if (!tenantId && req.user?.role === 'super_admin') {
       const firstTenant = await prisma.tenant.findFirst();
@@ -140,12 +168,75 @@ export async function getProcessDetails(req: Request, res: Response) {
       return res.status(404).json({ error: 'Processo não encontrado' });
     }
 
+    // Marcar processo como visualizado pelo usuário
+    if (userId) {
+      const latestMovementDate = proc.movements?.[0]?.eventDate || null;
+      await prisma.processView.upsert({
+        where: {
+          userId_processId: { userId, processId: id }
+        },
+        update: {
+          lastViewedAt: new Date(),
+          lastSeenMovementDate: latestMovementDate
+        },
+        create: {
+          userId,
+          processId: id,
+          lastViewedAt: new Date(),
+          lastSeenMovementDate: latestMovementDate
+        }
+      });
+    }
+
     return res.status(200).json(proc);
   } catch (error) {
     console.error('getProcessDetails error:', error);
     return res.status(500).json({ error: 'Erro interno ao obter detalhes do processo' });
   }
 }
+
+export async function markAllProcessesSeen(req: Request, res: Response) {
+  try {
+    const userId = req.user?.userId;
+    let tenantId = req.user?.tenantId;
+    if (!tenantId && req.user?.role === 'super_admin') {
+      const firstTenant = await prisma.tenant.findFirst();
+      tenantId = firstTenant?.id;
+    }
+    if (!tenantId || !userId) return res.status(403).json({ error: 'Acesso negado' });
+
+    const { until_timestamp } = req.body;
+    if (!until_timestamp) {
+      return res.status(400).json({ error: 'until_timestamp é obrigatório para evitar race conditions' });
+    }
+
+    const untilDate = new Date(until_timestamp);
+
+    // Executa a inserção/atualização em massa usando Raw SQL para máxima performance.
+    // Isso evita o gargalo de trazer milhares de registros para a memória do Node.js
+    // e executar upserts sequenciais (que causariam timeout e travamento do pool do DB).
+    const result = await prisma.$executeRaw`
+      INSERT INTO process_views (user_id, process_id, last_viewed_at, last_seen_movement_date)
+      SELECT 
+        ${userId}::uuid as user_id,
+        p.id as process_id,
+        ${untilDate}::timestamp as last_viewed_at,
+        (SELECT event_date FROM movements m WHERE m.process_id = p.id ORDER BY event_date DESC LIMIT 1) as last_seen_movement_date
+      FROM processes p
+      WHERE p.tenant_id = ${tenantId}::uuid AND p.first_seen_at <= ${untilDate}::timestamp
+      ON CONFLICT (user_id, process_id) 
+      DO UPDATE SET 
+        last_viewed_at = EXCLUDED.last_viewed_at,
+        last_seen_movement_date = EXCLUDED.last_seen_movement_date;
+    `;
+
+    return res.status(200).json({ success: true, count: result });
+  } catch (error) {
+    console.error('markAllProcessesSeen error:', error);
+    return res.status(500).json({ error: 'Erro interno ao marcar processos como vistos' });
+  }
+}
+
 
 export async function enrichProcessWithDjen(req: Request, res: Response) {
   try {

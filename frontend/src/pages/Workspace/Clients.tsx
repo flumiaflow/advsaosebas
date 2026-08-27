@@ -21,6 +21,7 @@ export default function Clients() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive' | 'all'>('active');
 
   // Client Modal state (Create & Edit)
   const [clientModalOpen, setClientModalOpen] = useState(false);
@@ -44,6 +45,8 @@ export default function Clients() {
   // Sync Radar Modal State
   const socket = useSocket();
 
+  const [syncProgressMap, setSyncProgressMap] = useState<Record<string, { current: number, total: number }>>({});
+
   useEffect(() => {
     if (!socket) return;
     
@@ -54,15 +57,52 @@ export default function Clients() {
         queryClient.invalidateQueries({ queryKey: ['workspace', 'dashboard'] });
         toast.success(`Varredura concluída! ${payload.summary?.newProcessesCount ?? 0} processos atualizados.`);
       } else {
-        toast.error(`Falha na varredura: ${payload.error}`);
+        toast.error(`Sincronização finalizada: ${payload.error}`);
       }
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'activeSyncs'] });
+      setSyncProgressMap(prev => {
+        const next = { ...prev };
+        delete next[payload.clientId];
+        return next;
+      });
+    };
+
+    const handleSyncProgress = (payload: any) => {
+      setSyncProgressMap(prev => ({
+        ...prev,
+        [payload.clientId]: { current: payload.current, total: payload.total }
+      }));
+    };
+
+    const handleSyncCancelled = (payload: any) => {
+      toast.success(`Sincronização parada.`);
+      queryClient.invalidateQueries({ queryKey: ['workspace', 'activeSyncs'] });
+      setSyncProgressMap(prev => {
+        const next = { ...prev };
+        delete next[payload.clientId];
+        return next;
+      });
     };
 
     socket.on('sync:completed', handleSyncCompleted);
+    socket.on('sync:progress', handleSyncProgress);
+    socket.on('sync:cancelled', handleSyncCancelled);
     return () => {
       socket.off('sync:completed', handleSyncCompleted);
+      socket.off('sync:progress', handleSyncProgress);
+      socket.off('sync:cancelled', handleSyncCancelled);
     };
   }, [socket, queryClient]);
+
+  // Queries
+  const { data: activeSyncs = [] } = useQuery({
+    queryKey: ['workspace', 'activeSyncs'],
+    queryFn: async () => {
+      const { data } = await api.get('/sync/active');
+      return data || [];
+    },
+    staleTime: Infinity, // Só busca ao carregar a página, depois o websocket cuida
+  });
 
   // Queries
   const { data: clients, isLoading } = useQuery({
@@ -117,17 +157,33 @@ export default function Clients() {
     onError: (error: any) => alert(error.response?.data?.error || 'Erro ao iniciar importação')
   });
 
-  const handleStartSync = async (client: any) => {
-    try {
-      await api.post(`/sync/client/${client.id}`);
-      toast.success(`Sincronização de ${client.name} iniciada! Acompanhe o progresso.`);
-      
-      // Define optimistic state immediately before navigating
-      queryClient.setQueryData(['workspace', 'syncStatus', client.id], { status: 'running' });
-      
-      navigate(`/dashboard/processes?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`);
-    } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Erro na requisição inicial da varredura');
+  const handleToggleSync = async (client: any) => {
+    const isSyncing = activeSyncs.includes(client.id);
+
+    if (isSyncing) {
+      if (!window.confirm(`Deseja parar a sincronização de ${client.name}?`)) return;
+      try {
+        await api.post(`/sync/client/${client.id}/cancel`);
+        toast.success(`Sincronização parada com sucesso.`);
+        queryClient.invalidateQueries({ queryKey: ['workspace', 'activeSyncs'] });
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          toast.success('A sincronização já havia sido finalizada.');
+          queryClient.invalidateQueries({ queryKey: ['workspace', 'activeSyncs'] });
+        } else {
+          toast.error(err.response?.data?.error || 'Erro ao parar sincronização');
+        }
+      }
+    } else {
+      try {
+        await api.post(`/sync/client/${client.id}`);
+        toast.success(`Sincronização de ${client.name} iniciada!`);
+        queryClient.invalidateQueries({ queryKey: ['workspace', 'activeSyncs'] });
+        // Optionally redirect or just stay on the same page:
+        // navigate(`/dashboard/processes?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`);
+      } catch (err: any) {
+        toast.error(err.response?.data?.error || 'Erro na requisição inicial da varredura');
+      }
     }
   };
 
@@ -262,7 +318,12 @@ export default function Clients() {
   };
 
   const filteredClients = clients?.filter((c: any) => {
+    // Filtro de status
+    if (statusFilter === 'active' && !c.isActive) return false;
+    if (statusFilter === 'inactive' && c.isActive) return false;
+
     const term = searchTerm.toLowerCase();
+    if (!term) return true;
     const matchName = c.name?.toLowerCase().includes(term);
     const matchFantasy = c.fantasyName?.toLowerCase().includes(term);
     const matchCnpj = c.establishments?.some((e: any) => e.cnpj.includes(term));
@@ -308,6 +369,23 @@ export default function Clients() {
               fontSize: '13px'
             }}
           />
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value as any)}
+            style={{
+              padding: '0.5rem 0.75rem',
+              borderRadius: '6px',
+              border: '1px solid var(--line)',
+              background: 'var(--card)',
+              color: '#fff',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="active">Somente Ativos</option>
+            <option value="inactive">Somente Inativos</option>
+            <option value="all">Todos</option>
+          </select>
         </div>
 
         {/* Tabela de Clientes */}
@@ -409,12 +487,22 @@ export default function Clients() {
                           <Edit3 size={13} /> Editar
                         </button>
                         <button 
-                          onClick={() => handleStartSync(client)}
+                          onClick={() => handleToggleSync(client)}
                           className={styles.btnText}
-                          style={{ color: 'var(--blue)', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '12px', fontWeight: 600 }}
-                          title="Iniciar varredura de processos para este grupo agora"
+                          style={{ 
+                            color: !client.isActive ? 'var(--t3)' : activeSyncs.includes(client.id) ? '#EF4444' : 'var(--blue)', 
+                            display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '12px', fontWeight: 600,
+                            opacity: !client.isActive ? 0.5 : 1,
+                            pointerEvents: !client.isActive ? 'none' : 'auto'
+                          }}
+                          title={!client.isActive ? 'Cliente inativo — sincronização desabilitada' : activeSyncs.includes(client.id) ? "Parar Sincronização em Andamento" : "Iniciar varredura de processos para este grupo agora"}
+                          disabled={!client.isActive}
                         >
-                          <RefreshCw size={13} /> Sincronizar
+                          {activeSyncs.includes(client.id) ? (
+                            <><Loader2 size={13} className="spin" /> Sincronizando {syncProgressMap[client.id] ? `(${syncProgressMap[client.id].current}/${syncProgressMap[client.id].total})` : ''} (Parar)</>
+                          ) : (
+                            <><RefreshCw size={13} /> Sincronizar</>
+                          )}
                         </button>
                       </div>
                     </td>

@@ -40,7 +40,15 @@ model Tenant {
   notifications        Notification[]
   syncJobs             SyncJob[]
   auditLogs            AuditLog[]
+  emailLogs            EmailLog[]
   syncConfig           SyncConfig?
+
+  smtpHost             String?                @map("smtp_host") @db.VarChar(255)
+  smtpPort             Int?                   @map("smtp_port")
+  smtpSecure           Boolean                @default(false) @map("smtp_secure")
+  smtpUser             String?                @map("smtp_user") @db.VarChar(255)
+  smtpPass             String?                @map("smtp_pass") @db.Text
+  smtpFrom             String?                @map("smtp_from") @db.VarChar(255)
 
   @@map("tenants")
 }
@@ -64,6 +72,8 @@ model User {
   clientsCreated       Client[]               @relation("ClientCreator")
   notifications        Notification[]
   syncThrottleTriggers SyncThrottle[]
+  emailLogs            EmailLog[]
+  processViews         ProcessView[]
   
   @@map("users")
 }
@@ -99,6 +109,7 @@ model Client {
   notifications        Notification[]
   syncJobs             SyncJob[]
   syncThrottle         SyncThrottle?
+  emailLogs            EmailLog[]
 
   @@map("clients")
 }
@@ -168,6 +179,7 @@ model Process {
   processParties       ProcessParty[]
   movements            Movement[]
   notifications        Notification[]
+  processViews         ProcessView[]
 
   @@unique([tenantId, processNumber])
   @@index([tenantId])
@@ -358,3 +370,32 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+model EmailLog {
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String                 @map("tenant_id") @db.Uuid
+  tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  clientId             String                 @map("client_id") @db.Uuid
+  client               Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  userId               String                 @map("user_id") @db.Uuid
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject              String                 @db.VarChar(255)
+  status               String                 @db.VarChar(50)
+  errorReason          String?                @map("error_reason") @db.Text
+  sentAt               DateTime               @default(now()) @map("sent_at")
+
+  @@map("email_logs")
+}
+
+model ProcessView {
+  userId               String                 @map("user_id") @db.Uuid
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  processId            String                 @map("process_id") @db.Uuid
+  process              Process                @relation(fields: [processId], references: [id], onDelete: Cascade)
+
+  lastViewedAt         DateTime               @default(now()) @map("last_viewed_at")
+  lastSeenMovementDate DateTime?              @map("last_seen_movement_date") @db.Timestamptz
+
+  @@id([userId, processId])
+  @@index([userId])
+  @@map("process_views")
+}

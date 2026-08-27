@@ -1358,3 +1358,105 @@
     left: 100%;
   }
 }
+
+/* ═══════════════════════════════════════════════════
+   BADGES DE VISUALIZAÇÃO: NOVO / ATUALIZADO
+   ═══════════════════════════════════════════════════ */
+
+/* Badge de processo novo (azul com pulso) */
+.badgeNew {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  animation: pulseNew 2s ease-in-out infinite;
+  white-space: nowrap;
+}
+
+/* Badge de processo atualizado (laranja) */
+.badgeUpdated {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  white-space: nowrap;
+}
+
+/* Borda lateral de destaque em linhas com novidades */
+.rowNew {
+  border-left: 3px solid #3b82f6 !important;
+}
+
+.rowUpdated {
+  border-left: 3px solid #fb923c !important;
+}
+
+/* Fundo sutil de destaque */
+.rowNew td:first-child {
+  box-shadow: inset 3px 0 0 #3b82f6;
+}
+
+.rowUpdated td:first-child {
+  box-shadow: inset 3px 0 0 #fb923c;
+}
+
+/* Animação de pulso sutil para badge "NOVO" */
+@keyframes pulseNew {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.3); }
+  50% { opacity: 0.7; box-shadow: 0 0 8px 2px rgba(59, 130, 246, 0.15); }
+}
+
+/* Pill do filtro rápido "Novidades" - cor especial */
+.pillUnseen {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(251, 146, 60, 0.12) 100%);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.pillUnseen.pillActive {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(251, 146, 60, 0.25) 100%);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Botão "Marcar todos como vistos" */
+.markSeenBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--r);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.08);
+  color: #60a5fa;
+  line-height: 1;
+}
+
+.markSeenBtn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.markSeenBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

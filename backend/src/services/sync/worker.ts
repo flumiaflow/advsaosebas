@@ -113,7 +113,26 @@ export async function handleSyncJob(job: any) {
       }
     }
 
-    for (const est of establishments) {
+    for (let i = 0; i < establishments.length; i++) {
+      const est = establishments[i];
+      // Check se cancelado a cada iteração (rápido o suficiente por ID)
+      const currentJobState = await prisma.syncJob.findUnique({ where: { id: syncJobRecord.id } });
+      if (currentJobState?.status === 'error' || currentJobState?.status === 'cancelled') {
+        console.warn(`[WORKER] Sincronização abortada pelo usuário. Interrompendo varredura para Cliente ${clientId}.`);
+        return; // Aborta silenciosamente pois o controller já disparou os eventos
+      }
+
+      // Emite evento de progresso
+      try {
+        const io = getIO();
+        io.to(`tenant:${tenantId}`).emit('sync:progress', {
+          clientId,
+          current: i + 1,
+          total: establishments.length,
+          doc: est.cnpj
+        });
+      } catch (e) {}
+
       try {
         // Para CPFs (pessoa física), usa o nome completo diretamente como termo de busca
         // Para CNPJs, gera variações com sufixos societários
@@ -237,72 +256,96 @@ export async function handleSyncJob(job: any) {
             console.warn(`[DJEN] Falha não-bloqueante no enriquecimento:`, djenErr);
           });
 
-          // 5. Upsert de Movimentações (ON CONFLICT DO NOTHING é garantido pelo UNIQUE)
-          for (const mov of p.movements) {
-            try {
-              const movRecord = await prisma.movement.create({
-                data: {
-                  processId: processRecord.id,
-                  tenantId,
-                  sourceEventId: mov.eventId,
-                  eventDate: mov.date,
-                  eventCode: mov.code,
-                  eventName: mov.name,
-                  eventTypeGroup: mov.typeGroup,
-                  description: mov.description,
-                  importType: 'DATAJUD',
-                  source: 'API_PUBLICA'
-                }
-              });
-              newMovementsCount++;
-              
+          // 5. Upsert de Movimentações (Bulk Operations para mitigar Gargalo N+1)
+          const existingMovs = await prisma.movement.findMany({
+            where: { processId: processRecord.id },
+            select: { sourceEventId: true }
+          });
+          const existingEventIds = new Set(existingMovs.map(m => m.sourceEventId));
+
+          const newMovements = p.movements.filter((mov: any) => !existingEventIds.has(mov.eventId));
+
+          if (newMovements.length > 0) {
+            // A. Inserção em Lote (Bulk Insert)
+            const movementsData = newMovements.map((mov: any) => ({
+              processId: processRecord.id,
+              tenantId,
+              sourceEventId: mov.eventId,
+              eventDate: mov.date,
+              eventCode: mov.code,
+              eventName: mov.name,
+              eventTypeGroup: mov.typeGroup,
+              description: mov.description,
+              importType: 'DATAJUD',
+              source: 'API_PUBLICA'
+            }));
+
+            await prisma.movement.createMany({
+              data: movementsData,
+              skipDuplicates: true
+            });
+
+            newMovementsCount += newMovements.length;
+
+            newMovements.forEach((mov: any) => {
               syncDetails.push({
                 processNumber: processRecord.processNumber,
                 isNew: false,
                 type: 'movement',
                 description: mov.name
               });
-              
-              // 6. Criar NOTIFICAÇÃO (Central de Notificações)
-              // Dispara para todos os usuários que têm acesso ao Cliente
-              const accesses = await prisma.userClientAccess.findMany({ where: { clientId } });
-              const supervisorAccesses = await prisma.user.findMany({ where: { tenantId, role: 'supervisor' }});
-              
-              const usersToNotify = new Set([
-                ...accesses.map(a => a.userId),
-                ...supervisorAccesses.map(s => s.id)
-              ]);
+            });
 
-              const notifications = Array.from(usersToNotify).map(userId => ({
-                tenantId,
-                userId,
-                clientId,
-                type: 'NEW_MOVEMENT',
+            // B. Recuperação dos IDs recém-criados para gerar notificações
+            const insertedMovs = await prisma.movement.findMany({
+              where: {
                 processId: processRecord.id,
-                movementId: movRecord.id,
-                title: `Nova Movimentação: ${mov.name}`
-              }));
+                sourceEventId: { in: newMovements.map((m: any) => m.eventId) }
+              },
+              select: { id: true, eventName: true }
+            });
 
-              if (notifications.length > 0) {
-                await prisma.notification.createMany({ data: notifications });
-                
-                // Dispara WebSockets para todos os usuários notificados
-                try {
-                  const io = getIO();
-                  for (const userId of usersToNotify) {
+            // C. Desacoplamento e Batching de Notificações
+            const accesses = await prisma.userClientAccess.findMany({ where: { clientId } });
+            const supervisorAccesses = await prisma.user.findMany({ where: { tenantId, role: 'supervisor' }});
+            
+            const usersToNotify = new Set([
+              ...accesses.map(a => a.userId),
+              ...supervisorAccesses.map(s => s.id)
+            ]);
+
+            const notifications: any[] = [];
+            insertedMovs.forEach(mov => {
+              usersToNotify.forEach(userId => {
+                notifications.push({
+                  tenantId,
+                  userId,
+                  clientId,
+                  type: 'NEW_MOVEMENT',
+                  processId: processRecord.id,
+                  movementId: mov.id,
+                  title: `Nova Movimentação: ${mov.eventName}`
+                });
+              });
+            });
+
+            if (notifications.length > 0) {
+              await prisma.notification.createMany({ data: notifications });
+              
+              // Dispara WebSockets para todos os usuários notificados
+              try {
+                const io = getIO();
+                insertedMovs.forEach(mov => {
+                  usersToNotify.forEach(userId => {
                     io.to(`user:${userId}`).emit('notification:new', {
-                      title: `Nova Movimentação: ${mov.name}`,
+                      title: `Nova Movimentação: ${mov.eventName}`,
                       processId: processRecord.id
                     });
-                  }
-                } catch (socketErr) {
-                  // Ignore if socket.io is not initialized (e.g. tests or strict background mode)
-                }
+                  });
+                });
+              } catch (socketErr) {
+                // Ignore if socket.io is not initialized
               }
-
-            } catch (e: any) {
-              // Se violou unique de (processId, sourceEventId), já existe, tudo bem
-              if (e.code !== 'P2002') throw e;
             }
           }
         }
@@ -326,6 +369,54 @@ export async function handleSyncJob(job: any) {
         details: syncDetails
       }
     });
+
+    // 8. Disparo de E-mail Consolidado (Digest)
+    if (newProcessesCount > 0 || newMovementsCount > 0) {
+      try {
+        const { emailQueue } = await import('../../utils/emailService');
+        // Achar responsáveis
+        const accesses = await prisma.userClientAccess.findMany({
+          where: { clientId },
+          include: { user: true }
+        });
+        const supervisors = await prisma.user.findMany({
+          where: { tenantId, role: 'supervisor' }
+        });
+        
+        const usersToEmail = new Map();
+        accesses.forEach(a => { if (a.user.isActive) usersToEmail.set(a.user.email, a.user); });
+        supervisors.forEach(s => { if (s.isActive) usersToEmail.set(s.email, s); });
+
+        if (usersToEmail.size > 0 && emailQueue) {
+          const subject = `JurisWatch: Resumo de Sincronização - ${client?.name || 'Cliente'}`;
+          let htmlContent = `<h3>Sincronização Finalizada: ${client?.name || 'Cliente'}</h3>`;
+          htmlContent += `<p>Foram encontrados <b>${newProcessesCount} novos processos</b> e <b>${newMovementsCount} novas movimentações</b>.</p>`;
+          
+          if (syncDetails.length > 0) {
+             htmlContent += `<h4>Detalhes:</h4><ul>`;
+             syncDetails.forEach(d => {
+                htmlContent += `<li><b>${d.type === 'process' ? 'Novo Processo' : 'Nova Movimentação'}</b>: ${d.processNumber} ${d.description ? '- ' + d.description : ''}</li>`;
+             });
+             htmlContent += `</ul>`;
+          }
+          htmlContent += `<br><p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard/processes">Acessar a Plataforma</a></p>`;
+
+          for (const user of Array.from(usersToEmail.values())) {
+            await emailQueue.add('send-sync-digest', {
+              tenantId,
+              clientId,
+              userId: user.id,
+              userEmail: user.email,
+              subject,
+              htmlContent
+            });
+          }
+        }
+      } catch(emailErr) {
+        console.error('[WORKER] Erro ao enfileirar e-mails de resumo:', emailErr);
+      }
+    }
+
 
     // Invalida caches do Redis relacionados aos processos e métricas
     try {
@@ -443,26 +534,47 @@ export async function handleImportJob(job: any) {
 
           enrichProcessFromDjen(processRecord.processNumber, tenantId, processRecord.id).catch(console.warn);
 
-          for (const mov of p.movements) {
-            const existingMov = await tx.movement.findUnique({ where: { processId_sourceEventId: { processId: processRecord.id, sourceEventId: mov.eventId } } });
-            if (!existingMov) {
-              const movRecord = await tx.movement.create({
-                data: { processId: processRecord.id, tenantId, sourceEventId: mov.eventId, eventDate: mov.date, eventCode: mov.code, eventName: mov.name, eventTypeGroup: mov.typeGroup, description: mov.description, importType: 'DATAJUD', source: 'API_PUBLICA' }
+          const existingMovs = await tx.movement.findMany({
+            where: { processId: processRecord.id },
+            select: { sourceEventId: true }
+          });
+          const existingEventIds = new Set(existingMovs.map((m: any) => m.sourceEventId));
+          const newMovements = p.movements.filter((mov: any) => !existingEventIds.has(mov.eventId));
+
+          if (newMovements.length > 0) {
+            const movementsData = newMovements.map((mov: any) => ({
+              processId: processRecord.id, tenantId, sourceEventId: mov.eventId, eventDate: mov.date, eventCode: mov.code, eventName: mov.name, eventTypeGroup: mov.typeGroup, description: mov.description, importType: 'DATAJUD', source: 'API_PUBLICA'
+            }));
+            
+            await tx.movement.createMany({
+              data: movementsData,
+              skipDuplicates: true
+            });
+
+            const insertedMovs = await tx.movement.findMany({
+              where: {
+                processId: processRecord.id,
+                sourceEventId: { in: newMovements.map((m: any) => m.eventId) }
+              },
+              select: { id: true, eventName: true }
+            });
+
+            const accesses = await tx.userClientAccess.findMany({ where: { clientId } });
+            const supervisorAccesses = await tx.user.findMany({ where: { tenantId, role: 'supervisor' }});
+            const usersToNotify = new Set([...accesses.map(a => a.userId), ...supervisorAccesses.map(s => s.id)]);
+
+            const notifications: any[] = [];
+            insertedMovs.forEach((mov: any) => {
+              usersToNotify.forEach(userId => {
+                notifications.push({
+                  tenantId, userId, clientId, type: 'NEW_MOVEMENT', processId: processRecord.id, movementId: mov.id,
+                  title: `Nova Movimentação Histórica: ${mov.eventName}`, isRead: true
+                });
               });
+            });
 
-              // Notifications with isRead = true for historical
-              const accesses = await tx.userClientAccess.findMany({ where: { clientId } });
-              const supervisorAccesses = await tx.user.findMany({ where: { tenantId, role: 'supervisor' }});
-              const usersToNotify = new Set([...accesses.map(a => a.userId), ...supervisorAccesses.map(s => s.id)]);
-
-              const notifications = Array.from(usersToNotify).map(userId => ({
-                tenantId, userId, clientId, type: 'NEW_MOVEMENT', processId: processRecord.id, movementId: movRecord.id,
-                title: `Nova Movimentação Histórica: ${mov.name}`, isRead: true
-              }));
-
-              if (notifications.length > 0) {
-                await tx.notification.createMany({ data: notifications });
-              }
+            if (notifications.length > 0) {
+              await tx.notification.createMany({ data: notifications });
             }
           }
         });
@@ -512,26 +624,33 @@ export async function handleProcessSync(processId: string, tenantId: string, tri
         }
       });
 
-      for (const mov of p.movements) {
-        try {
-          await prisma.movement.create({
-            data: {
-              processId: processRecord.id,
-              tenantId,
-              sourceEventId: mov.eventId,
-              eventDate: mov.date,
-              eventCode: mov.code,
-              eventName: mov.name,
-              eventTypeGroup: mov.typeGroup,
-              description: mov.description,
-              importType: 'DATAJUD',
-              source: 'API_PUBLICA'
-            }
-          });
-          newMovementsCount++;
-        } catch (e: any) {
-          if (e.code !== 'P2002') console.warn(`[WORKER] Movement create error:`, e.message);
-        }
+      const existingMovs = await prisma.movement.findMany({
+        where: { processId: processRecord.id },
+        select: { sourceEventId: true }
+      });
+      const existingEventIds = new Set(existingMovs.map((m: any) => m.sourceEventId));
+      const newMovements = p.movements.filter((mov: any) => !existingEventIds.has(mov.eventId));
+
+      if (newMovements.length > 0) {
+        const movementsData = newMovements.map((mov: any) => ({
+          processId: processRecord.id,
+          tenantId,
+          sourceEventId: mov.eventId,
+          eventDate: mov.date,
+          eventCode: mov.code,
+          eventName: mov.name,
+          eventTypeGroup: mov.typeGroup,
+          description: mov.description,
+          importType: 'DATAJUD',
+          source: 'API_PUBLICA'
+        }));
+
+        await prisma.movement.createMany({
+          data: movementsData,
+          skipDuplicates: true
+        });
+        
+        newMovementsCount += newMovements.length;
       }
     }
 

@@ -37,18 +37,26 @@ export async function getDashboardMetrics(req: Request, res: Response) {
         }
       }),
       (async () => {
-        let processIds: string[] | undefined;
-        if (role === 'user' && clientIds) {
-          const parties = await prisma.processParty.findMany({
-            where: { ...(tenantId && { tenantId }), clientId: { in: clientIds } },
-            select: { processId: true }
-          });
-          processIds = parties.map(p => p.processId);
-        }
+        // Busca somente processos vinculados a clientes ativos
+        const activeClientFilter = clientIds || (await prisma.client.findMany({
+          where: { ...(tenantId && { tenantId }), isActive: true },
+          select: { id: true }
+        })).map(c => c.id);
+
+        const parties = await prisma.processParty.findMany({
+          where: { 
+            ...(tenantId && { tenantId }), 
+            isActive: true,
+            clientId: { in: activeClientFilter } 
+          },
+          select: { processId: true }
+        });
+        const processIds = [...new Set(parties.map(p => p.processId))];
+
         return prisma.process.count({
           where: {
             ...(tenantId && { tenantId }),
-            ...(processIds && { id: { in: processIds } })
+            id: { in: processIds }
           }
         });
       })(),
